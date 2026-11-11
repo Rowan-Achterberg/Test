@@ -14,7 +14,7 @@ Nothing is installed and nothing is fetched from the network.
 
 ## Playing
 
-- **New game** picks a strength from 1 (beginner) to 8 (strongest) and your side.
+- **New game** sets the computer's rating on a slider from 400 to Max, and your side.
 - Move by dragging a piece, or click the piece and then the square. Legal
   squares are marked.
 - **Takeback** undoes your last move; **Resign** ends the game.
@@ -32,9 +32,19 @@ and insufficient material.
 The opponent is **Stockfish 19** (the lite, single-threaded WebAssembly build
 from [stockfish.js](https://github.com/nmrugg/stockfish.js)). It is embedded
 inside `chess.html` itself, so it runs with no network; the file is about
-2.5 MB because of it. Levels 1 to 7 use Stockfish's own Skill Level setting
-with a limited search depth, and the two lowest also play an occasional random
-move; level 8 is Stockfish at full strength, thinking two seconds a move.
+2.5 MB because of it.
+
+You choose the computer's **rating**:
+
+| Slider | What the computer does |
+|---|---|
+| 1320 to 3190 | Stockfish limits itself to that rating (its own `UCI_Elo` setting) |
+| Max | no limit: Stockfish at full strength, two seconds a move |
+| 400 to 1300 | approximate: Stockfish at its weakest setting, plus a rising share of random moves |
+
+Stockfish's calibrated range stops at 1320 and 3190, which is why the slider
+runs from 400 to Max rather than 0 to 3500: ratings below 1320 are an
+approximation, and above 3190 there is only "unlimited".
 
 Stockfish also drives the display:
 

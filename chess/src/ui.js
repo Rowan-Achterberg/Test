@@ -13,11 +13,19 @@
   const $ = (id) => document.getElementById(id);
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const STORE_KEY = 'offline-chess-v1';
-  const LEVEL_NOTES = [
-    '', 'Beginner: plays fast and blunders often.', 'Novice: still makes frequent mistakes.',
-    'Casual: misses deeper tactics.', 'Improving player.', 'Club player.',
-    'Strong club player.', 'Expert.', 'Stockfish at full strength.',
-  ];
+  /* The computer's rating. Stockfish can limit itself to a rating between
+     SF_MIN_ELO and SF_MAX_ELO; ELO_MAX on the slider means "no limit". */
+  const ELO_MIN = 400, ELO_MAX = 3200, ELO_STEP = 50, ELO_DEFAULT = 1500;
+  const SF_MIN_ELO = 1320, SF_MAX_ELO = 3190;
+
+  function ratingName(elo) {
+    return elo >= ELO_MAX ? 'Stockfish, full strength' : 'Stockfish ' + elo;
+  }
+  function ratingNote(elo) {
+    if (elo >= ELO_MAX) return 'No limit: Stockfish at full strength.';
+    if (elo >= SF_MIN_ELO) return 'Stockfish limits itself to about this rating.';
+    return 'Approximate: Stockfish at its weakest, plus deliberate random moves.';
+  }
 
   const state = {
     moves: [],            /* the game, as UCI strings from the start position */
@@ -29,7 +37,7 @@
     showEval: true,
     showMoveScores: true,
     userColor: C.WHITE,
-    level: 3,
+    elo: ELO_DEFAULT,
     resigned: false,
     flipped: false,
     sound: true,
@@ -45,24 +53,29 @@
   let requestId = 0;
   let worker = null;
   let drag = null;
-  let pickedLevel = 3;
+  let pickedElo = ELO_DEFAULT;
   let thinkingSince = 0;
 
   /* ---------------------------------------------------------- stockfish -- */
 
-  /* Strength levels: Stockfish's own Skill Level plus a search limit. The
-     two lowest levels also play an occasional random move. */
-  const SF_LEVELS = [
-    null,
-    { skill: 0,  go: 'depth 1',                blunder: 0.25, book: false },
-    { skill: 1,  go: 'depth 2',                blunder: 0.12, book: false },
-    { skill: 3,  go: 'depth 3',                blunder: 0,    book: true },
-    { skill: 6,  go: 'depth 5',                blunder: 0,    book: true },
-    { skill: 9,  go: 'depth 7',                blunder: 0,    book: true },
-    { skill: 13, go: 'depth 10 movetime 1000', blunder: 0,    book: true },
-    { skill: 17, go: 'depth 14 movetime 1500', blunder: 0,    book: true },
-    { skill: 20, go: 'movetime 2000',          blunder: 0,    book: true },
-  ];
+  /*
+   * How the computer plays at a given rating.
+   *   elo      rating Stockfish limits itself to; 0 means unlimited
+   *   blunder  chance of a random legal move, used to reach ratings below
+   *            the weakest setting Stockfish offers
+   */
+  function strength(elo) {
+    if (elo >= ELO_MAX) return { elo: 0, go: 'movetime 2000', blunder: 0, book: true };
+    if (elo >= SF_MIN_ELO) return { elo: Math.min(elo, SF_MAX_ELO), go: 'movetime 1000', blunder: 0, book: true };
+    const gap = (SF_MIN_ELO - elo) / (SF_MIN_ELO - ELO_MIN);     /* 0 at 1320, 1 at 400 */
+    return { elo: SF_MIN_ELO, go: 'movetime 300', blunder: 0.5 * gap, book: elo >= 1000 };
+  }
+
+  /* The same scale for the built-in fallback engine's levels 1 to 8. */
+  function fallbackLevel(elo) {
+    return Math.max(1, Math.min(8, Math.round((elo - ELO_MIN) / 400) + 1));
+  }
+
   const EVAL_MS = 400;   /* thinking time for the evaluation bar */
 
   /* The engine asks for its .wasm file with fetch(). A page opened from disk
@@ -131,7 +144,8 @@
     if (sf.status !== 'ready' || sf.active || !sf.pending) return;
     const job = sf.active = sf.pending;
     sf.pending = null;
-    sf.worker.postMessage('setoption name Skill Level value ' + job.skill);
+    sf.worker.postMessage('setoption name UCI_LimitStrength value ' + (job.elo ? 'true' : 'false'));
+    if (job.elo) sf.worker.postMessage('setoption name UCI_Elo value ' + job.elo);
     sf.worker.postMessage('position startpos' + (job.moves.length ? ' moves ' + job.moves.join(' ') : ''));
     sf.worker.postMessage('go ' + job.go);
   }
@@ -172,7 +186,7 @@
 
   /* Last resort when workers are unavailable: think on this thread. */
   function thinkHere(id) {
-    const moves = state.moves.slice(), level = state.level;
+    const moves = state.moves.slice(), level = fallbackLevel(state.elo);
     setTimeout(() => {
       if (id !== requestId) return;
       try { computerPlays(C.chooseMove(moves, level).uci, id); } catch (err) { /* no move */ }
@@ -181,7 +195,7 @@
 
   function builtinGo(id) {
     if (!worker) worker = makeWorker();
-    if (worker) worker.postMessage({ id, moves: state.moves, level: state.level });
+    if (worker) worker.postMessage({ id, moves: state.moves, level: fallbackLevel(state.elo) });
     else thinkHere(id);
   }
 
@@ -226,17 +240,17 @@
 
     const chooseMove = () => {
       if (id !== requestId || !computerToMove) return;
-      const cfg = SF_LEVELS[state.level];
+      const cfg = strength(state.elo);
       const book = cfg.book ? C.bookMove(moves) : null;
       if (book && pos.findMove(book)) return computerPlays(book, id);
       if (cfg.blunder && Math.random() < cfg.blunder)
         return computerPlays(C.moveToUci(legal[Math.floor(Math.random() * legal.length)]), id);
-      sfRun({ skill: cfg.skill, moves, go: cfg.go, onDone: (best) => computerPlays(best, id) });
+      sfRun({ elo: cfg.elo, moves, go: cfg.go, onDone: (best) => computerPlays(best, id) });
     };
 
     if (!state.showEval && !state.showMoveScores) return chooseMove();
     sfRun({
-      skill: 20, moves, go: 'movetime ' + EVAL_MS,
+      elo: 0, moves, go: 'movetime ' + EVAL_MS,
       onInfo: (score) => {
         if (id !== requestId) return;
         state.evals[ply] = whiteEval(score, ply);
@@ -314,11 +328,11 @@
     analyse();
   }
 
-  function newGame(side, level) {
+  function newGame(side, elo) {
     cancelThinking();
     if (side === 'random') side = Math.random() < 0.5 ? 'white' : 'black';
     state.userColor = side === 'black' ? C.BLACK : C.WHITE;
-    state.level = level;
+    state.elo = elo;
     state.moves = [];
     state.resigned = false;
     state.flipped = state.userColor === C.BLACK;
@@ -365,7 +379,7 @@
   function save() {
     try {
       localStorage.setItem(STORE_KEY, JSON.stringify({
-        moves: state.moves, userColor: state.userColor, level: state.level,
+        moves: state.moves, userColor: state.userColor, elo: state.elo,
         resigned: state.resigned, flipped: state.flipped, sound: state.sound, showEval: state.showEval,
         showMoveScores: state.showMoveScores, evals: state.evals,
       }));
@@ -378,7 +392,9 @@
       if (!s || !Array.isArray(s.moves)) return false;
       state.moves = s.moves.map(String);
       state.userColor = s.userColor === C.BLACK ? C.BLACK : C.WHITE;
-      state.level = Math.max(1, Math.min(8, s.level | 0)) || 3;
+      /* Games saved by the first version stored a level from 1 to 8. */
+      const fromLevel = [0, 600, 800, 1000, 1200, 1500, 1800, 2200, ELO_MAX][s.level | 0];
+      state.elo = Math.max(ELO_MIN, Math.min(ELO_MAX, (s.elo | 0) || fromLevel || ELO_DEFAULT));
       state.resigned = !!s.resigned;
       state.flipped = !!s.flipped;
       state.sound = s.sound !== false;
@@ -652,7 +668,7 @@
       const el = $('player-' + where), white = color === C.WHITE;
       el.querySelector('.dot').className = 'dot ' + (white ? 'white' : 'black');
       el.querySelector('.name').textContent = !state.started ? (white ? 'White' : 'Black')
-        : color === state.userColor ? 'You' : 'Computer level ' + state.level;
+        : color === state.userColor ? 'You' : ratingName(state.elo);
       el.classList.toggle('turn', state.started && !state.over.over && white === whiteToMove);
 
       /* Tray beside the board: every piece this side has taken so far. */
@@ -799,7 +815,7 @@
 
   function buildPgn() {
     const user = state.userColor === C.WHITE;
-    const computer = 'Computer level ' + state.level;
+    const computer = ratingName(state.elo);
     const d = new Date();
     const date = d.getFullYear() + '.' + String(d.getMonth() + 1).padStart(2, '0') + '.' + String(d.getDate()).padStart(2, '0');
     const result = !state.over.over ? '*' : state.over.winner === null ? '1/2-1/2' : state.over.winner === C.WHITE ? '1-0' : '0-1';
@@ -829,22 +845,19 @@
 
   /* -------------------------------------------------------------- setup -- */
 
+  function showPickedElo() {
+    $('elo-value').textContent = pickedElo >= ELO_MAX ? 'Max' : pickedElo;
+    $('elo-note').textContent = ratingNote(pickedElo);
+  }
+
   function openSetup() {
-    pickedLevel = state.level;
-    const box = $('levels');
-    box.textContent = '';
-    for (let i = 1; i <= 8; i++) {
-      const b = document.createElement('button');
-      b.textContent = i;
-      b.className = i === pickedLevel ? 'on' : '';
-      b.addEventListener('click', () => {
-        pickedLevel = i;
-        for (const o of box.children) o.className = o === b ? 'on' : '';
-        $('level-note').textContent = LEVEL_NOTES[i];
-      });
-      box.appendChild(b);
-    }
-    $('level-note').textContent = LEVEL_NOTES[pickedLevel];
+    pickedElo = state.elo;
+    const slider = $('elo');
+    slider.min = ELO_MIN;
+    slider.max = ELO_MAX;
+    slider.step = ELO_STEP;
+    slider.value = pickedElo;
+    showPickedElo();
     const dlg = $('setup');
     if (!dlg.open) dlg.showModal();
   }
@@ -897,9 +910,10 @@
     });
 
     for (const b of $('sides').querySelectorAll('button')) {
-      b.addEventListener('click', () => { $('setup').close(); newGame(b.dataset.side, pickedLevel); });
+      b.addEventListener('click', () => { $('setup').close(); newGame(b.dataset.side, pickedElo); });
     }
     $('setup-close').addEventListener('click', () => $('setup').close());
+    $('elo').addEventListener('input', () => { pickedElo = +$('elo').value; showPickedElo(); });
 
     document.addEventListener('keydown', (e) => {
       if ($('setup').open || e.ctrlKey || e.metaKey || e.altKey) return;

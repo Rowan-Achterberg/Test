@@ -55,9 +55,11 @@
 
 <dialog id="setup">
   <h2>Play with the computer</h2>
-  <h3>Strength</h3>
-  <div id="levels"></div>
-  <p id="level-note"></p>
+  <h3>Computer's rating</h3>
+  <div id="elo-value"></div>
+  <input type="range" id="elo">
+  <div id="elo-scale"><span>400</span><span>beginner</span><span>club</span><span>master</span><span>Max</span></div>
+  <p id="elo-note"></p>
   <h3>Choose your side</h3>
   <div id="sides">
     <button data-side="black" title="Black"><svg viewBox="0 0 40 40"><use href="#bk"/></svg></button>
