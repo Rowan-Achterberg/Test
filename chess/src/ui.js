@@ -18,6 +18,13 @@
   const ELO_MIN = 400, ELO_MAX = 3200, ELO_STEP = 50, ELO_DEFAULT = 1500;
   const SF_MIN_ELO = 1320, SF_MAX_ELO = 3190;
 
+  /* Time controls offered on the new-game page: [minutes, increment]. */
+  const TIME_PRESETS = [
+    [1, 0, 'Bullet'], [2, 1, 'Bullet'], [3, 0, 'Blitz'], [3, 2, 'Blitz'],
+    [5, 0, 'Blitz'], [5, 3, 'Blitz'], [10, 0, 'Rapid'], [10, 5, 'Rapid'],
+    [15, 10, 'Rapid'], [30, 0, 'Classical'], [30, 20, 'Classical'],
+  ];
+
   function ratingName(elo) {
     return elo >= ELO_MAX ? 'Stockfish, full strength' : 'Stockfish ' + elo;
   }
@@ -38,6 +45,9 @@
     showMoveScores: true,
     userColor: C.WHITE,
     elo: ELO_DEFAULT,
+    tc: null,             /* time control { min, inc }, or null for no clock */
+    times: [],            /* times[i]: [white ms, black ms] left after i moves */
+    flag: null,           /* colour whose time ran out */
     resigned: false,
     flipped: false,
     sound: true,
@@ -55,6 +65,9 @@
   let drag = null;
   let pickedElo = ELO_DEFAULT;
   let thinkingSince = 0;
+  let pickedTc = { min: 30, inc: 0 };
+  const live = [0, 0];    /* time left right now: [white ms, black ms] */
+  let lastTick = 0;
 
   /* ---------------------------------------------------------- stockfish -- */
 
@@ -221,7 +234,7 @@
 
     if (state.over.over) {
       if (state.over.reason === 'checkmate') state.evals[ply] = { mate: 0, white: state.over.winner === C.WHITE };
-      else if (state.over.reason !== 'resignation') state.evals[ply] = { cp: 0 };
+      else if (state.over.reason !== 'resignation' && state.over.reason !== 'time out') state.evals[ply] = { cp: 0 };
       renderEval();
       renderMoveScore(ply);
       save();
@@ -245,7 +258,13 @@
       if (book && pos.findMove(book)) return computerPlays(book, id);
       if (cfg.blunder && Math.random() < cfg.blunder)
         return computerPlays(C.moveToUci(legal[Math.floor(Math.random() * legal.length)]), id);
-      sfRun({ elo: cfg.elo, moves, go: cfg.go, onDone: (best) => computerPlays(best, id) });
+      /* With a clock running, never spend more than a slice of what is left. */
+      let go = cfg.go;
+      if (state.tc) {
+        const budget = Math.max(100, Math.round(live[(state.userColor ^ 8) >> 3] / 30));
+        go = 'movetime ' + Math.min(+cfg.go.split(' ')[1], budget);
+      }
+      sfRun({ elo: cfg.elo, moves, go, onDone: (best) => computerPlays(best, id) });
     };
 
     if (!state.showEval && !state.showMoveScores) return chooseMove();
@@ -284,6 +303,7 @@
 
   function currentStatus() {
     if (state.resigned) return { over: true, reason: 'resignation', winner: state.userColor ^ 8 };
+    if (state.flag !== null) return { over: true, reason: 'time out', winner: state.flag ^ 8 };
     return pos.status();
   }
 
@@ -295,6 +315,16 @@
     state.checks = [false];
     state.caps = [];
     state.evals.length = Math.min(state.evals.length, state.moves.length + 1);
+    if (state.tc) {
+      /* Clocks go back to what they showed after the last move still standing. */
+      const start = state.tc.min * 60000;
+      if (!state.times.length) state.times = [[start, start]];
+      state.times.length = Math.min(state.times.length, state.moves.length + 1);
+      while (state.times.length < state.moves.length + 1) state.times.push(state.times[state.times.length - 1].slice());
+      live[0] = state.times[state.moves.length][0];
+      live[1] = state.times[state.moves.length][1];
+      lastTick = performance.now();
+    }
     for (const uci of state.moves) {
       const m = pos.findMove(uci);
       if (!m) throw new Error('illegal move ' + uci);
@@ -312,6 +342,12 @@
 
   function play(m, animate) {
     const capture = C.moveCaptured(m) !== 0;
+    if (state.tc) {
+      tick();                                   /* charge the mover up to this instant */
+      if (state.flag !== null) return;          /* the flag fell first */
+      if (state.moves.length >= 1) live[pos.side >> 3] += state.tc.inc * 1000;
+      state.times.push([live[0], live[1]]);
+    }
     state.moves.push(C.moveToUci(m));
     state.sans.push(pos.san(m));
     state.caps.push(C.moveCaptured(m));
@@ -328,11 +364,14 @@
     analyse();
   }
 
-  function newGame(side, elo) {
+  function newGame(side, elo, tc) {
     cancelThinking();
     if (side === 'random') side = Math.random() < 0.5 ? 'white' : 'black';
     state.userColor = side === 'black' ? C.BLACK : C.WHITE;
     state.elo = elo;
+    state.tc = tc;
+    state.times = [];
+    state.flag = null;
     state.moves = [];
     state.resigned = false;
     state.flipped = state.userColor === C.BLACK;
@@ -353,6 +392,7 @@
     cancelThinking();
     state.moves.length -= n;
     state.resigned = false;
+    state.flag = null;
     rebuild();
     save();
     renderAll(false);
@@ -374,6 +414,58 @@
       pos.side === state.userColor && $('promo').hidden;
   }
 
+  /* -------------------------------------------------------------- clock -- */
+
+  /* The clock runs for the side to move once the first move has been played. */
+  function clockSide() {
+    if (!state.tc || !state.started || state.over.over || state.moves.length < 1) return null;
+    return pos.side;
+  }
+
+  function tick() {
+    const now = performance.now();
+    const side = clockSide();
+    if (side !== null) {
+      live[side >> 3] -= now - lastTick;
+      if (live[side >> 3] <= 0) {
+        live[side >> 3] = 0;
+        lastTick = now;
+        state.flag = side;
+        cancelThinking();
+        state.over = currentStatus();
+        save();
+        renderAll(false);
+        analyse();
+        return;
+      }
+    }
+    lastTick = now;
+    renderClocks();
+  }
+
+  function clockText(ms) {
+    if (ms < 10000) {                                   /* last ten seconds: show tenths */
+      const t = Math.floor(ms / 100);
+      return '0:0' + Math.floor(t / 10) + '<span class="tenths">.' + (t % 10) + '</span>';
+    }
+    const s = Math.ceil(ms / 1000);
+    const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60;
+    return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(s % 60).padStart(2, '0');
+  }
+
+  function renderClocks() {
+    document.body.classList.toggle('no-clock', !state.tc);
+    if (!state.tc) return;
+    const bottom = state.flipped ? C.BLACK : C.WHITE;
+    const running = clockSide();
+    for (const [where, color] of [['bottom', bottom], ['top', bottom ^ 8]]) {
+      const el = $('clock-' + where), ms = live[color >> 3];
+      el.innerHTML = clockText(ms);
+      el.classList.toggle('running', running === color);
+      el.classList.toggle('low', running === color && ms < 10000);
+    }
+  }
+
   /* ------------------------------------------------------------ storage -- */
 
   function save() {
@@ -382,6 +474,7 @@
         moves: state.moves, userColor: state.userColor, elo: state.elo,
         resigned: state.resigned, flipped: state.flipped, sound: state.sound, showEval: state.showEval,
         showMoveScores: state.showMoveScores, evals: state.evals,
+        tc: state.tc, times: state.times, flag: state.flag,
       }));
     } catch (err) { /* private mode or storage disabled: play on without saving */ }
   }
@@ -399,6 +492,9 @@
       state.flipped = !!s.flipped;
       state.sound = s.sound !== false;
       state.showEval = s.showEval !== false;
+      state.tc = s.tc && s.tc.min > 0 ? { min: +s.tc.min, inc: +s.tc.inc || 0 } : null;
+      state.times = state.tc && Array.isArray(s.times) ? s.times.filter((t) => Array.isArray(t) && t.length === 2) : [];
+      state.flag = s.flag === C.WHITE || s.flag === C.BLACK ? s.flag : null;
       state.showMoveScores = s.showMoveScores !== false;
       state.evals = Array.isArray(s.evals)
         ? s.evals.map((e) => (e && (typeof e.cp === 'number' || typeof e.mate === 'number') ? e : undefined)) : [];
@@ -595,6 +691,7 @@
     if (o.reason === 'checkmate') return 'Checkmate • ' + winner + ' is victorious';
     if (o.reason === 'resignation')
       return (o.winner === C.WHITE ? 'Black' : 'White') + ' resigned • ' + winner + ' is victorious';
+    if (o.reason === 'time out') return 'Time out • ' + winner + ' is victorious';
     const reason = o.reason.charAt(0).toUpperCase() + o.reason.slice(1);
     return reason + ' • Draw';
   }
@@ -611,9 +708,9 @@
     $('btn-takeback').disabled = state.moves.length < (pos.side === state.userColor ? 2 : 1);
     $('btn-resign').disabled = state.over.over || !state.moves.length;
     $('btn-new').classList.toggle('primary', state.over.over || !state.started);
-    $('btn-sound').textContent = 'Sound: ' + (state.sound ? 'on' : 'off');
-    $('btn-eval').textContent = 'Eval bar: ' + (state.showEval ? 'on' : 'off');
-    $('btn-mscore').textContent = 'Move scores: ' + (state.showMoveScores ? 'on' : 'off');
+    $('btn-sound').className = state.sound ? 'on' : 'off';
+    $('btn-eval').className = state.showEval ? 'on' : 'off';
+    $('btn-mscore').className = state.showMoveScores ? 'on' : 'off';
   }
 
   /* The evaluation bar and the computer's score for the position on view. */
@@ -669,7 +766,9 @@
       el.querySelector('.dot').className = 'dot ' + (white ? 'white' : 'black');
       el.querySelector('.name').textContent = !state.started ? (white ? 'White' : 'Black')
         : color === state.userColor ? 'You' : ratingName(state.elo);
-      el.classList.toggle('turn', state.started && !state.over.over && white === whiteToMove);
+      const toMove = state.started && !state.over.over && white === whiteToMove;
+      el.classList.toggle('turn', toMove);
+      $('panel').classList.toggle('turn-' + where, toMove);
 
       /* Tray beside the board: every piece this side has taken so far. */
       const tray = $('tray-' + where);
@@ -698,6 +797,7 @@
     renderPlayers();
     renderStatus();
     renderEval();
+    renderClocks();
   }
 
   function setView(ply) {
@@ -820,7 +920,8 @@
     const date = d.getFullYear() + '.' + String(d.getMonth() + 1).padStart(2, '0') + '.' + String(d.getDate()).padStart(2, '0');
     const result = !state.over.over ? '*' : state.over.winner === null ? '1/2-1/2' : state.over.winner === C.WHITE ? '1-0' : '0-1';
     let text = '[Event "Offline game"]\n[Date "' + date + '"]\n[White "' + (user ? 'Player' : computer) + '"]\n' +
-      '[Black "' + (user ? computer : 'Player') + '"]\n[Result "' + result + '"]\n\n';
+      '[Black "' + (user ? computer : 'Player') + '"]\n[Result "' + result + '"]\n' +
+      (state.tc ? '[TimeControl "' + state.tc.min * 60 + '+' + state.tc.inc + '"]\n' : '') + '\n';
     state.sans.forEach((san, i) => { text += (i % 2 ? '' : i / 2 + 1 + '. ') + san + ' '; });
     return text + result + '\n';
   }
@@ -850,6 +951,40 @@
     $('elo-note').textContent = ratingNote(pickedElo);
   }
 
+  function sameTc(a, b) {
+    return (!a && !b) || (a && b && a.min === b.min && a.inc === b.inc);
+  }
+
+  /* The grid of time controls, plus "Custom" and "No clock". */
+  function renderTimes(custom) {
+    const box = $('times');
+    box.textContent = '';
+    const preset = pickedTc && TIME_PRESETS.some((t) => t[0] === pickedTc.min && t[1] === pickedTc.inc);
+    const isCustom = custom || (pickedTc && !preset);
+    const add = (label, sub, on, pick) => {
+      const b = document.createElement('button');
+      b.textContent = label;
+      const small = document.createElement('small');
+      small.textContent = sub;
+      b.appendChild(small);
+      b.className = on ? 'on' : '';
+      b.addEventListener('click', pick);
+      box.appendChild(b);
+    };
+    for (const [min, inc, kind] of TIME_PRESETS)
+      add(min + '+' + inc, kind, !isCustom && sameTc(pickedTc, { min, inc }), () => { pickedTc = { min, inc }; renderTimes(false); });
+    add('Custom', 'your own', isCustom, () => { readCustomTime(); renderTimes(true); });
+    add('∞', 'No clock', !isCustom && !pickedTc, () => { pickedTc = null; renderTimes(false); });
+    $('custom-time').hidden = !isCustom;
+    if (isCustom && pickedTc) { $('tc-min').value = pickedTc.min; $('tc-inc').value = pickedTc.inc; }
+  }
+
+  function readCustomTime() {
+    const min = Math.max(1, Math.min(180, Math.round(+$('tc-min').value) || 20));
+    const inc = Math.max(0, Math.min(60, Math.round(+$('tc-inc').value) || 0));
+    pickedTc = { min, inc };
+  }
+
   function openSetup() {
     pickedElo = state.elo;
     const slider = $('elo');
@@ -858,6 +993,8 @@
     slider.step = ELO_STEP;
     slider.value = pickedElo;
     showPickedElo();
+    if (state.started) pickedTc = state.tc ? { min: state.tc.min, inc: state.tc.inc } : null;
+    renderTimes(false);
     const dlg = $('setup');
     if (!dlg.open) dlg.showModal();
   }
@@ -910,7 +1047,11 @@
     });
 
     for (const b of $('sides').querySelectorAll('button')) {
-      b.addEventListener('click', () => { $('setup').close(); newGame(b.dataset.side, pickedElo); });
+      b.addEventListener('click', () => {
+        $('setup').close();
+        if (!$('custom-time').hidden) readCustomTime();
+        newGame(b.dataset.side, pickedElo, pickedTc);
+      });
     }
     $('setup-close').addEventListener('click', () => $('setup').close());
     $('elo').addEventListener('input', () => { pickedElo = +$('elo').value; showPickedElo(); });
@@ -926,6 +1067,7 @@
       e.preventDefault();
     });
 
+    setInterval(tick, 100);
     if (restored) analyse();
     else openSetup();
   }

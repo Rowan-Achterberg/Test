@@ -14,7 +14,10 @@ Nothing is installed and nothing is fetched from the network.
 
 ## Playing
 
-- **New game** sets the computer's rating on a slider from 400 to Max, and your side.
+- **New game** sets the computer's rating (a slider from 400 to Max), the time
+  control (1+0 up to 30+20, your own custom time, or no clock) and your side.
+- Each side has a **clock**. It starts after the first move, adds the increment
+  after every move, and running out of time loses the game.
 - Move by dragging a piece, or click the piece and then the square. Legal
   squares are marked.
 - **Takeback** undoes your last move; **Resign** ends the game.
@@ -51,14 +54,14 @@ Stockfish also drives the display:
 - the **evaluation bar** left of the board shows who is ahead (light = White);
 - **Computer's score** in the side panel is the same number from the
   computer's point of view, in pawns, or the moves to mate;
-- **captured pieces** are lined up above and below the board, with the
+- **captured pieces** are lined up beside each player's clock, with the
   material lead.
 
 - **move scores** in the move list give the computer's score after every
   move, so you can see which move changed the game.
 
-`Eval bar: on/off` and `Move scores: on/off` hide these if you would rather
-not see them while playing.
+The switches under the side panel turn the **eval bar and score**, the
+**score of each move** and the **sound** on or off.
 
 A small engine written for this project (`src/engine.js`) supplies the rules
 and notation, and takes over as the opponent if Stockfish cannot start.

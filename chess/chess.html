@@ -6,24 +6,27 @@
 <title>Offline Chess</title>
 <style>
 :root {
-  --bg: #161512;
-  --panel: #262421;
-  --panel-2: #302e2c;
-  --text: #bababa;
-  --bright: #f0f0f0;
-  --dim: #7d7b78;
+  --bg: #edebe9;
+  --card: #ffffff;
+  --strip: #f7f6f5;
+  --line: #d9d9d9;
+  --text: #4d4d4d;
+  --bright: #2b2b2b;
+  --dim: #8a8a8a;
   --light: #f0d9b5;
   --dark: #b58863;
   --accent: #629924;
-  --danger: #cc3333;
+  --accent-soft: #d0e0bd;
+  --select: #d1e4f6;
+  --link: #3692e7;
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; }
 body {
   margin: 0;
-  background: var(--bg);
+  background: linear-gradient(to bottom, #edebe9, #dedbd7) fixed;
   color: var(--text);
-  font: 15px/1.4 "Segoe UI", "Noto Sans", system-ui, -apple-system, sans-serif;
+  font: 15px/1.4 "Noto Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
 }
 header {
   display: flex;
@@ -38,17 +41,17 @@ main {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  align-items: flex-start;
-  gap: 18px;
+  align-items: center;
+  gap: 24px;
   padding: 0 18px 18px;
 }
 
 /* ---- board ---- */
 #board-col {
-  width: min(calc(100vh - 136px), calc(100vw - 420px));
+  width: min(calc(100vh - 76px), calc(100vw - 440px));
   min-width: 320px;
 }
-@media (max-width: 760px) {
+@media (max-width: 780px) {
   #board-col { width: calc(100vw - 36px); }
 }
 #board-row { display: flex; gap: 8px; align-items: stretch; }
@@ -64,10 +67,10 @@ body.no-eval #evalbar { display: none; }
   position: relative;
   flex: none;
   width: 26px;
-  border-radius: 4px;
+  border-radius: 3px;
   overflow: hidden;
-  background: #403d39;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+  background: #5c5955;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
 }
 #evalbar::after {              /* the half-way mark */
   content: "";
@@ -83,7 +86,7 @@ body.no-eval #evalbar { display: none; }
   right: 0;
   bottom: 0;
   height: 50%;
-  background: #e9e9e9;
+  background: #ffffff;
   transition: height 0.5s ease;
 }
 #evalbar.flipped #evalfill { bottom: auto; top: 0; }
@@ -100,34 +103,20 @@ body.no-eval #evalbar { display: none; }
 #evalnum.at-bottom { bottom: 0; }
 #evalnum.at-top { top: 0; }
 #evalnum.on-light { color: #333; }
-#evalnum.on-dark { color: #ddd; }
+#evalnum.on-dark { color: #eee; }
 
-/* Captured pieces, shown beside the board for the side that took them. */
-.tray {
-  display: flex;
-  align-items: center;
-  height: 30px;
-  padding-left: 34px;
-  color: var(--text);
-  font-size: 14px;
-}
-body.no-eval .tray { padding-left: 0; }
-.tray svg { width: 28px; height: 28px; margin-left: -11px; flex: none; }
-.tray svg:first-child { margin-left: -4px; }
-.tray svg.gap { margin-left: -2px; }
-.tray .plus { margin-left: 6px; }
 #board {
   display: grid;
   grid-template-columns: repeat(8, 1fr);
   grid-template-rows: repeat(8, 1fr);
   width: 100%;
   height: 100%;
-  border-radius: 4px;
+  border-radius: 3px;
   overflow: hidden;
   user-select: none;
   -webkit-user-select: none;
   touch-action: none;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
 }
 .sq { position: relative; }
 .sq.light { background: var(--light); }
@@ -192,9 +181,9 @@ body.no-eval .tray { padding-left: 0; }
   display: flex;
   gap: 6px;
   padding: 8px;
-  background: var(--panel);
+  background: var(--card);
   border-radius: 6px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
 }
 #promo button {
   width: clamp(48px, 11vmin, 84px);
@@ -206,125 +195,198 @@ body.no-eval .tray { padding-left: 0; }
 #promo button:hover { background: #d0d0d0; }
 #promo svg { width: 100%; height: 100%; }
 
-/* ---- side panel ---- */
-#panel {
-  width: 340px;
+/* ---- side column: material, clock, card, clock, material ---- */
+#side {
+  width: 360px;
   max-width: 100%;
   display: flex;
   flex-direction: column;
-  background: var(--panel);
-  border-radius: 4px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
 }
+
+/* Captured pieces and the material lead. */
+.tray {
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 4px;
+  color: var(--dim);
+  font-size: 15px;
+}
+.tray svg { width: 28px; height: 28px; margin-left: -12px; flex: none; opacity: 0.75; }
+.tray svg:first-child { margin-left: -4px; }
+.tray svg.gap { margin-left: -3px; }
+.tray .plus { margin-left: 5px; }
+
+.clock {
+  align-self: flex-start;
+  min-width: 190px;
+  padding: 0 16px;
+  background: var(--card);
+  color: var(--text);
+  font: 400 52px/1.25 "Roboto", "Segoe UI", system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 2px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+#clock-top { border-radius: 6px 6px 0 0; }
+#clock-bottom { border-radius: 0 0 6px 6px; }
+.clock.running { background: var(--accent-soft); color: #111; }
+.clock.low { background: #f2c4c0; color: #9b1c12; }
+.clock .tenths { font-size: 0.6em; }
+body.no-clock .clock { display: none; }
+
+#panel {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  border-radius: 0 6px 6px 0;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+}
+body.no-clock #panel { border-radius: 6px; }
+#panel.turn-top { border-top-color: var(--accent); }
+#panel.turn-bottom { border-bottom-color: var(--accent); }
+
 .player {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 44px;
-  padding: 8px 12px;
-  color: var(--bright);
+  gap: 10px;
+  min-height: 42px;
+  padding: 6px 14px;
+  color: var(--text);
+  font-size: 17px;
 }
 .player .dot {
-  width: 12px;
-  height: 12px;
+  width: 13px;
+  height: 13px;
   border-radius: 50%;
-  border: 2px solid #8a8886;
+  border: 2px solid #9a9a9a;
   flex: none;
 }
 .player .dot.white { background: #fff; }
-.player .dot.black { background: #000; }
-.player.turn .dot { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(98, 153, 36, 0.35); }
-.player .name { font-size: 16px; }
+.player .dot.black { background: #333; border-color: #333; }
+.player.turn .dot { box-shadow: 0 0 0 3px var(--accent); }
+
+#nav { display: flex; background: var(--strip); border-top: 1px solid var(--line); border-bottom: 2px solid #c8c8c8; }
+#nav button {
+  flex: 1;
+  padding: 6px 0;
+  font-size: 17px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+}
+#nav button:hover { background: var(--link); color: #fff; }
 
 #moves {
   display: grid;
-  grid-template-columns: 46px 1fr 1fr;
+  grid-template-columns: 52px 1fr 1fr;
   align-content: start;
-  height: 260px;
+  height: 216px;
   overflow-y: auto;
-  background: var(--panel-2);
-  border-top: 1px solid #1b1a18;
-  border-bottom: 1px solid #1b1a18;
-  font-size: 15px;
+  background: var(--card);
+  font-size: 16px;
 }
-#moves .num { padding: 4px 0; text-align: center; background: #2b2927; color: var(--dim); }
+#moves .num { padding: 5px 0; text-align: center; background: var(--strip); border-right: 1px solid var(--line); color: #b3b3b3; }
 #moves .mv {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
   gap: 6px;
-  padding: 4px 10px;
+  padding: 5px 12px;
   cursor: pointer;
   color: var(--text);
 }
 #moves .mv .sc { font-size: 12px; font-weight: 400; color: var(--dim); }
-#moves .mv:hover .sc, #moves .mv.cur .sc { color: inherit; }
-#moves .mv:hover { background: #3692e7; color: #fff; }
-#moves .mv.cur { background: #293a49; color: #fff; font-weight: 600; }
+#moves .mv:hover { background: var(--link); color: #fff; }
+#moves .mv.cur { background: var(--select); color: var(--bright); font-weight: 700; }
+#moves .mv:hover .sc { color: inherit; }
 #moves .result {
   grid-column: 1 / -1;
   padding: 8px 10px;
   text-align: center;
   color: var(--bright);
-  border-top: 1px solid #1b1a18;
+  font-weight: 600;
+  border-top: 1px solid var(--line);
 }
-#moves .result small { display: block; color: var(--text); font-style: italic; }
+#moves .result small { display: block; color: var(--text); font-style: italic; font-weight: 400; }
 #moves .empty { grid-column: 1 / -1; padding: 14px; color: var(--dim); text-align: center; }
 
-#nav { display: flex; }
-#nav button { flex: 1; padding: 7px 0; font-size: 17px; border-radius: 0; background: transparent; color: var(--text); }
-#nav button:hover { background: var(--panel-2); color: var(--bright); }
-
-#status { padding: 10px 12px 2px; min-height: 34px; color: var(--bright); }
-#score { padding: 0 12px 2px; min-height: 22px; color: var(--text); font-size: 14px; }
+#info { border-top: 1px solid var(--line); padding: 8px 14px 2px; }
+#status { min-height: 22px; color: var(--bright); }
+#score { min-height: 21px; color: var(--dim); font-size: 14px; }
 #score b { color: var(--bright); font-weight: 600; }
-#actions, #extras { display: flex; gap: 8px; padding: 8px 12px; }
-#extras { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; }
-#extras { padding-top: 0; padding-bottom: 12px; }
+
+#actions { display: flex; gap: 6px; padding: 6px 10px 8px; }
 button {
   font: inherit;
-  color: var(--bright);
-  background: #3a3836;
-  border: 0;
+  color: var(--text);
+  background: var(--strip);
+  border: 1px solid var(--line);
   border-radius: 4px;
-  padding: 7px 12px;
+  padding: 6px 10px;
   cursor: pointer;
 }
-button:hover { background: #4a4846; }
-button:disabled { opacity: 0.4; cursor: default; }
-#actions button, #extras button { flex: 1; }
-button.primary { background: var(--accent); color: #fff; }
-button.primary:hover { background: #73b12c; }
-#extras button { background: transparent; color: var(--dim); font-size: 13px; }
-#extras button:hover { color: var(--bright); background: var(--panel-2); }
+button:hover { background: #e9e8e6; color: var(--bright); }
+button:disabled { opacity: 0.45; cursor: default; }
+#actions button { flex: 1; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.primary:hover { background: #73b12c; color: #fff; }
+
+/* Display options: plain on/off switches under the card. */
+#extras { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; margin-top: 10px; }
+#extras button { background: transparent; border-color: transparent; color: var(--dim); font-size: 13px; text-align: left; padding: 4px 8px; }
+#extras button:hover { background: rgba(0, 0, 0, 0.06); color: var(--bright); }
+#extras button.on::before, #extras button.off::before {
+  content: "";
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 7px;
+  border-radius: 50%;
+  border: 2px solid #9a9a9a;
+}
+#extras button.on::before { background: var(--accent); border-color: var(--accent); }
 
 /* ---- new game dialog ---- */
 dialog {
-  width: min(420px, calc(100vw - 32px));
+  width: min(440px, calc(100vw - 32px));
   padding: 22px 24px 24px;
   border: 0;
   border-radius: 8px;
-  background: var(--panel);
+  background: var(--card);
   color: var(--text);
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.7);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
 }
-dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
-dialog h2 { margin: 0 0 16px; font-size: 22px; font-weight: 400; color: var(--bright); text-align: center; }
+dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
+dialog h2 { margin: 0 0 14px; font-size: 22px; font-weight: 400; color: var(--bright); text-align: center; }
 dialog h3 { margin: 16px 0 8px; font-size: 14px; font-weight: 400; color: var(--text); text-align: center; }
 #elo-value { font-size: 34px; font-weight: 300; text-align: center; color: var(--bright); line-height: 1.2; }
 #elo { display: block; width: 100%; margin: 8px 0 4px; accent-color: var(--accent); cursor: pointer; }
 #elo-scale { display: flex; justify-content: space-between; font-size: 12px; color: var(--dim); }
 #elo-note { min-height: 20px; margin: 10px 0 0; font-size: 13px; text-align: center; color: var(--dim); }
+#times { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+#times button { padding: 6px 0 5px; line-height: 1.15; font-size: 20px; font-weight: 300; color: var(--text); }
+#times button small { display: block; font-size: 11px; font-weight: 400; color: var(--dim); }
+#times button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+#times button.on small { color: #e6f2d6; }
+#custom-time { display: flex; justify-content: center; gap: 18px; margin-top: 10px; font-size: 13px; }
+#custom-time[hidden] { display: none; }
+#custom-time input { width: 62px; margin-left: 6px; padding: 4px 6px; font: inherit; border: 1px solid var(--line); border-radius: 4px; }
 #sides { display: flex; justify-content: center; align-items: flex-end; gap: 14px; }
-#sides button { padding: 6px; background: #4d4b49; border-radius: 8px; line-height: 0; }
-#sides button:hover { background: #6a6866; }
+#sides button { padding: 6px; background: #e3e1de; border-radius: 8px; line-height: 0; }
+#sides button:hover { background: #cfccc8; }
 #sides svg { width: 56px; height: 56px; }
 #sides button.big svg { width: 76px; height: 76px; }
 #sides .half { display: block; position: relative; width: 76px; height: 76px; }
 #sides .half svg { position: absolute; inset: 0; }
 #sides .half svg:first-child { clip-path: inset(0 50% 0 0); }
 #sides .half svg:last-child { clip-path: inset(0 0 0 50%); }
-dialog .close { display: block; margin: 18px auto 0; background: transparent; color: var(--dim); }
+dialog .close { display: block; margin: 18px auto 0; background: transparent; border-color: transparent; color: var(--dim); }
 
 </style>
 </head>
@@ -527,7 +589,6 @@ https://github.com/shaack/cm-chessboard
 </header>
 <main>
   <div id="board-col">
-    <div class="tray" id="tray-top"></div>
     <div id="board-row">
       <div id="evalbar" title="Evaluation: who is ahead"><div id="evalfill"></div><div id="evalnum"></div></div>
       <div id="board-wrap">
@@ -535,31 +596,38 @@ https://github.com/shaack/cm-chessboard
         <div id="promo" hidden></div>
       </div>
     </div>
-    <div class="tray" id="tray-bottom"></div>
   </div>
-  <aside id="panel">
-    <div class="player" id="player-top"><span class="dot"></span><span class="name"></span></div>
-    <div id="moves"></div>
-    <div id="nav">
-      <button id="nav-first" title="First move (Up arrow)">&#x23EE;&#xFE0E;</button>
-      <button id="nav-prev" title="Previous move (Left arrow)">&#x25C0;&#xFE0E;</button>
-      <button id="nav-next" title="Next move (Right arrow)">&#x25B6;&#xFE0E;</button>
-      <button id="nav-last" title="Last move (Down arrow)">&#x23ED;&#xFE0E;</button>
-      <button id="nav-flip" title="Flip board (F)">&#x21C5;</button>
+  <aside id="side">
+    <div class="tray" id="tray-top"></div>
+    <div class="clock" id="clock-top"></div>
+    <div id="panel">
+      <div class="player" id="player-top"><span class="dot"></span><span class="name"></span></div>
+      <div id="nav">
+        <button id="nav-first" title="First move (Up arrow)">&#x23EE;&#xFE0E;</button>
+        <button id="nav-prev" title="Previous move (Left arrow)">&#x25C0;&#xFE0E;</button>
+        <button id="nav-next" title="Next move (Right arrow)">&#x25B6;&#xFE0E;</button>
+        <button id="nav-last" title="Last move (Down arrow)">&#x23ED;&#xFE0E;</button>
+        <button id="nav-flip" title="Flip board (F)">&#x21C5;</button>
+      </div>
+      <div id="moves"></div>
+      <div id="info">
+        <div id="status"></div>
+        <div id="score"></div>
+      </div>
+      <div id="actions">
+        <button id="btn-takeback" title="Take back your last move">&#x21B6; Takeback</button>
+        <button id="btn-resign" title="Resign the game">&#x2691;&#xFE0E; Resign</button>
+        <button id="btn-new">New game</button>
+      </div>
+      <div class="player" id="player-bottom"><span class="dot"></span><span class="name"></span></div>
     </div>
-    <div id="status"></div>
-    <div id="score"></div>
-    <div id="actions">
-      <button id="btn-takeback">Takeback</button>
-      <button id="btn-resign">Resign</button>
-      <button id="btn-new">New game</button>
-    </div>
-    <div class="player" id="player-bottom"><span class="dot"></span><span class="name"></span></div>
+    <div class="clock" id="clock-bottom"></div>
+    <div class="tray" id="tray-bottom"></div>
     <div id="extras">
+      <button id="btn-eval">Eval bar and score</button>
+      <button id="btn-mscore">Score of each move</button>
+      <button id="btn-sound">Sound</button>
       <button id="btn-pgn">Copy PGN</button>
-      <button id="btn-eval">Eval bar: on</button>
-      <button id="btn-mscore">Move scores: on</button>
-      <button id="btn-sound">Sound: on</button>
     </div>
   </aside>
 </main>
@@ -571,6 +639,12 @@ https://github.com/shaack/cm-chessboard
   <input type="range" id="elo">
   <div id="elo-scale"><span>400</span><span>beginner</span><span>club</span><span>master</span><span>Max</span></div>
   <p id="elo-note"></p>
+  <h3>Time: minutes per side + seconds added each move</h3>
+  <div id="times"></div>
+  <div id="custom-time" hidden>
+    <label>Minutes <input type="number" id="tc-min" min="1" max="180" value="20"></label>
+    <label>Seconds added <input type="number" id="tc-inc" min="0" max="60" value="10"></label>
+  </div>
   <h3>Choose your side</h3>
   <div id="sides">
     <button data-side="black" title="Black"><svg viewBox="0 0 40 40"><use href="#bk"/></svg></button>
@@ -1597,6 +1671,13 @@ https://github.com/shaack/cm-chessboard
   const ELO_MIN = 400, ELO_MAX = 3200, ELO_STEP = 50, ELO_DEFAULT = 1500;
   const SF_MIN_ELO = 1320, SF_MAX_ELO = 3190;
 
+  /* Time controls offered on the new-game page: [minutes, increment]. */
+  const TIME_PRESETS = [
+    [1, 0, 'Bullet'], [2, 1, 'Bullet'], [3, 0, 'Blitz'], [3, 2, 'Blitz'],
+    [5, 0, 'Blitz'], [5, 3, 'Blitz'], [10, 0, 'Rapid'], [10, 5, 'Rapid'],
+    [15, 10, 'Rapid'], [30, 0, 'Classical'], [30, 20, 'Classical'],
+  ];
+
   function ratingName(elo) {
     return elo >= ELO_MAX ? 'Stockfish, full strength' : 'Stockfish ' + elo;
   }
@@ -1617,6 +1698,9 @@ https://github.com/shaack/cm-chessboard
     showMoveScores: true,
     userColor: C.WHITE,
     elo: ELO_DEFAULT,
+    tc: null,             /* time control { min, inc }, or null for no clock */
+    times: [],            /* times[i]: [white ms, black ms] left after i moves */
+    flag: null,           /* colour whose time ran out */
     resigned: false,
     flipped: false,
     sound: true,
@@ -1634,6 +1718,9 @@ https://github.com/shaack/cm-chessboard
   let drag = null;
   let pickedElo = ELO_DEFAULT;
   let thinkingSince = 0;
+  let pickedTc = { min: 30, inc: 0 };
+  const live = [0, 0];    /* time left right now: [white ms, black ms] */
+  let lastTick = 0;
 
   /* ---------------------------------------------------------- stockfish -- */
 
@@ -1800,7 +1887,7 @@ https://github.com/shaack/cm-chessboard
 
     if (state.over.over) {
       if (state.over.reason === 'checkmate') state.evals[ply] = { mate: 0, white: state.over.winner === C.WHITE };
-      else if (state.over.reason !== 'resignation') state.evals[ply] = { cp: 0 };
+      else if (state.over.reason !== 'resignation' && state.over.reason !== 'time out') state.evals[ply] = { cp: 0 };
       renderEval();
       renderMoveScore(ply);
       save();
@@ -1824,7 +1911,13 @@ https://github.com/shaack/cm-chessboard
       if (book && pos.findMove(book)) return computerPlays(book, id);
       if (cfg.blunder && Math.random() < cfg.blunder)
         return computerPlays(C.moveToUci(legal[Math.floor(Math.random() * legal.length)]), id);
-      sfRun({ elo: cfg.elo, moves, go: cfg.go, onDone: (best) => computerPlays(best, id) });
+      /* With a clock running, never spend more than a slice of what is left. */
+      let go = cfg.go;
+      if (state.tc) {
+        const budget = Math.max(100, Math.round(live[(state.userColor ^ 8) >> 3] / 30));
+        go = 'movetime ' + Math.min(+cfg.go.split(' ')[1], budget);
+      }
+      sfRun({ elo: cfg.elo, moves, go, onDone: (best) => computerPlays(best, id) });
     };
 
     if (!state.showEval && !state.showMoveScores) return chooseMove();
@@ -1863,6 +1956,7 @@ https://github.com/shaack/cm-chessboard
 
   function currentStatus() {
     if (state.resigned) return { over: true, reason: 'resignation', winner: state.userColor ^ 8 };
+    if (state.flag !== null) return { over: true, reason: 'time out', winner: state.flag ^ 8 };
     return pos.status();
   }
 
@@ -1874,6 +1968,16 @@ https://github.com/shaack/cm-chessboard
     state.checks = [false];
     state.caps = [];
     state.evals.length = Math.min(state.evals.length, state.moves.length + 1);
+    if (state.tc) {
+      /* Clocks go back to what they showed after the last move still standing. */
+      const start = state.tc.min * 60000;
+      if (!state.times.length) state.times = [[start, start]];
+      state.times.length = Math.min(state.times.length, state.moves.length + 1);
+      while (state.times.length < state.moves.length + 1) state.times.push(state.times[state.times.length - 1].slice());
+      live[0] = state.times[state.moves.length][0];
+      live[1] = state.times[state.moves.length][1];
+      lastTick = performance.now();
+    }
     for (const uci of state.moves) {
       const m = pos.findMove(uci);
       if (!m) throw new Error('illegal move ' + uci);
@@ -1891,6 +1995,12 @@ https://github.com/shaack/cm-chessboard
 
   function play(m, animate) {
     const capture = C.moveCaptured(m) !== 0;
+    if (state.tc) {
+      tick();                                   /* charge the mover up to this instant */
+      if (state.flag !== null) return;          /* the flag fell first */
+      if (state.moves.length >= 1) live[pos.side >> 3] += state.tc.inc * 1000;
+      state.times.push([live[0], live[1]]);
+    }
     state.moves.push(C.moveToUci(m));
     state.sans.push(pos.san(m));
     state.caps.push(C.moveCaptured(m));
@@ -1907,11 +2017,14 @@ https://github.com/shaack/cm-chessboard
     analyse();
   }
 
-  function newGame(side, elo) {
+  function newGame(side, elo, tc) {
     cancelThinking();
     if (side === 'random') side = Math.random() < 0.5 ? 'white' : 'black';
     state.userColor = side === 'black' ? C.BLACK : C.WHITE;
     state.elo = elo;
+    state.tc = tc;
+    state.times = [];
+    state.flag = null;
     state.moves = [];
     state.resigned = false;
     state.flipped = state.userColor === C.BLACK;
@@ -1932,6 +2045,7 @@ https://github.com/shaack/cm-chessboard
     cancelThinking();
     state.moves.length -= n;
     state.resigned = false;
+    state.flag = null;
     rebuild();
     save();
     renderAll(false);
@@ -1953,6 +2067,58 @@ https://github.com/shaack/cm-chessboard
       pos.side === state.userColor && $('promo').hidden;
   }
 
+  /* -------------------------------------------------------------- clock -- */
+
+  /* The clock runs for the side to move once the first move has been played. */
+  function clockSide() {
+    if (!state.tc || !state.started || state.over.over || state.moves.length < 1) return null;
+    return pos.side;
+  }
+
+  function tick() {
+    const now = performance.now();
+    const side = clockSide();
+    if (side !== null) {
+      live[side >> 3] -= now - lastTick;
+      if (live[side >> 3] <= 0) {
+        live[side >> 3] = 0;
+        lastTick = now;
+        state.flag = side;
+        cancelThinking();
+        state.over = currentStatus();
+        save();
+        renderAll(false);
+        analyse();
+        return;
+      }
+    }
+    lastTick = now;
+    renderClocks();
+  }
+
+  function clockText(ms) {
+    if (ms < 10000) {                                   /* last ten seconds: show tenths */
+      const t = Math.floor(ms / 100);
+      return '0:0' + Math.floor(t / 10) + '<span class="tenths">.' + (t % 10) + '</span>';
+    }
+    const s = Math.ceil(ms / 1000);
+    const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60;
+    return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(s % 60).padStart(2, '0');
+  }
+
+  function renderClocks() {
+    document.body.classList.toggle('no-clock', !state.tc);
+    if (!state.tc) return;
+    const bottom = state.flipped ? C.BLACK : C.WHITE;
+    const running = clockSide();
+    for (const [where, color] of [['bottom', bottom], ['top', bottom ^ 8]]) {
+      const el = $('clock-' + where), ms = live[color >> 3];
+      el.innerHTML = clockText(ms);
+      el.classList.toggle('running', running === color);
+      el.classList.toggle('low', running === color && ms < 10000);
+    }
+  }
+
   /* ------------------------------------------------------------ storage -- */
 
   function save() {
@@ -1961,6 +2127,7 @@ https://github.com/shaack/cm-chessboard
         moves: state.moves, userColor: state.userColor, elo: state.elo,
         resigned: state.resigned, flipped: state.flipped, sound: state.sound, showEval: state.showEval,
         showMoveScores: state.showMoveScores, evals: state.evals,
+        tc: state.tc, times: state.times, flag: state.flag,
       }));
     } catch (err) { /* private mode or storage disabled: play on without saving */ }
   }
@@ -1978,6 +2145,9 @@ https://github.com/shaack/cm-chessboard
       state.flipped = !!s.flipped;
       state.sound = s.sound !== false;
       state.showEval = s.showEval !== false;
+      state.tc = s.tc && s.tc.min > 0 ? { min: +s.tc.min, inc: +s.tc.inc || 0 } : null;
+      state.times = state.tc && Array.isArray(s.times) ? s.times.filter((t) => Array.isArray(t) && t.length === 2) : [];
+      state.flag = s.flag === C.WHITE || s.flag === C.BLACK ? s.flag : null;
       state.showMoveScores = s.showMoveScores !== false;
       state.evals = Array.isArray(s.evals)
         ? s.evals.map((e) => (e && (typeof e.cp === 'number' || typeof e.mate === 'number') ? e : undefined)) : [];
@@ -2174,6 +2344,7 @@ https://github.com/shaack/cm-chessboard
     if (o.reason === 'checkmate') return 'Checkmate • ' + winner + ' is victorious';
     if (o.reason === 'resignation')
       return (o.winner === C.WHITE ? 'Black' : 'White') + ' resigned • ' + winner + ' is victorious';
+    if (o.reason === 'time out') return 'Time out • ' + winner + ' is victorious';
     const reason = o.reason.charAt(0).toUpperCase() + o.reason.slice(1);
     return reason + ' • Draw';
   }
@@ -2190,9 +2361,9 @@ https://github.com/shaack/cm-chessboard
     $('btn-takeback').disabled = state.moves.length < (pos.side === state.userColor ? 2 : 1);
     $('btn-resign').disabled = state.over.over || !state.moves.length;
     $('btn-new').classList.toggle('primary', state.over.over || !state.started);
-    $('btn-sound').textContent = 'Sound: ' + (state.sound ? 'on' : 'off');
-    $('btn-eval').textContent = 'Eval bar: ' + (state.showEval ? 'on' : 'off');
-    $('btn-mscore').textContent = 'Move scores: ' + (state.showMoveScores ? 'on' : 'off');
+    $('btn-sound').className = state.sound ? 'on' : 'off';
+    $('btn-eval').className = state.showEval ? 'on' : 'off';
+    $('btn-mscore').className = state.showMoveScores ? 'on' : 'off';
   }
 
   /* The evaluation bar and the computer's score for the position on view. */
@@ -2248,7 +2419,9 @@ https://github.com/shaack/cm-chessboard
       el.querySelector('.dot').className = 'dot ' + (white ? 'white' : 'black');
       el.querySelector('.name').textContent = !state.started ? (white ? 'White' : 'Black')
         : color === state.userColor ? 'You' : ratingName(state.elo);
-      el.classList.toggle('turn', state.started && !state.over.over && white === whiteToMove);
+      const toMove = state.started && !state.over.over && white === whiteToMove;
+      el.classList.toggle('turn', toMove);
+      $('panel').classList.toggle('turn-' + where, toMove);
 
       /* Tray beside the board: every piece this side has taken so far. */
       const tray = $('tray-' + where);
@@ -2277,6 +2450,7 @@ https://github.com/shaack/cm-chessboard
     renderPlayers();
     renderStatus();
     renderEval();
+    renderClocks();
   }
 
   function setView(ply) {
@@ -2399,7 +2573,8 @@ https://github.com/shaack/cm-chessboard
     const date = d.getFullYear() + '.' + String(d.getMonth() + 1).padStart(2, '0') + '.' + String(d.getDate()).padStart(2, '0');
     const result = !state.over.over ? '*' : state.over.winner === null ? '1/2-1/2' : state.over.winner === C.WHITE ? '1-0' : '0-1';
     let text = '[Event "Offline game"]\n[Date "' + date + '"]\n[White "' + (user ? 'Player' : computer) + '"]\n' +
-      '[Black "' + (user ? computer : 'Player') + '"]\n[Result "' + result + '"]\n\n';
+      '[Black "' + (user ? computer : 'Player') + '"]\n[Result "' + result + '"]\n' +
+      (state.tc ? '[TimeControl "' + state.tc.min * 60 + '+' + state.tc.inc + '"]\n' : '') + '\n';
     state.sans.forEach((san, i) => { text += (i % 2 ? '' : i / 2 + 1 + '. ') + san + ' '; });
     return text + result + '\n';
   }
@@ -2429,6 +2604,40 @@ https://github.com/shaack/cm-chessboard
     $('elo-note').textContent = ratingNote(pickedElo);
   }
 
+  function sameTc(a, b) {
+    return (!a && !b) || (a && b && a.min === b.min && a.inc === b.inc);
+  }
+
+  /* The grid of time controls, plus "Custom" and "No clock". */
+  function renderTimes(custom) {
+    const box = $('times');
+    box.textContent = '';
+    const preset = pickedTc && TIME_PRESETS.some((t) => t[0] === pickedTc.min && t[1] === pickedTc.inc);
+    const isCustom = custom || (pickedTc && !preset);
+    const add = (label, sub, on, pick) => {
+      const b = document.createElement('button');
+      b.textContent = label;
+      const small = document.createElement('small');
+      small.textContent = sub;
+      b.appendChild(small);
+      b.className = on ? 'on' : '';
+      b.addEventListener('click', pick);
+      box.appendChild(b);
+    };
+    for (const [min, inc, kind] of TIME_PRESETS)
+      add(min + '+' + inc, kind, !isCustom && sameTc(pickedTc, { min, inc }), () => { pickedTc = { min, inc }; renderTimes(false); });
+    add('Custom', 'your own', isCustom, () => { readCustomTime(); renderTimes(true); });
+    add('∞', 'No clock', !isCustom && !pickedTc, () => { pickedTc = null; renderTimes(false); });
+    $('custom-time').hidden = !isCustom;
+    if (isCustom && pickedTc) { $('tc-min').value = pickedTc.min; $('tc-inc').value = pickedTc.inc; }
+  }
+
+  function readCustomTime() {
+    const min = Math.max(1, Math.min(180, Math.round(+$('tc-min').value) || 20));
+    const inc = Math.max(0, Math.min(60, Math.round(+$('tc-inc').value) || 0));
+    pickedTc = { min, inc };
+  }
+
   function openSetup() {
     pickedElo = state.elo;
     const slider = $('elo');
@@ -2437,6 +2646,8 @@ https://github.com/shaack/cm-chessboard
     slider.step = ELO_STEP;
     slider.value = pickedElo;
     showPickedElo();
+    if (state.started) pickedTc = state.tc ? { min: state.tc.min, inc: state.tc.inc } : null;
+    renderTimes(false);
     const dlg = $('setup');
     if (!dlg.open) dlg.showModal();
   }
@@ -2489,7 +2700,11 @@ https://github.com/shaack/cm-chessboard
     });
 
     for (const b of $('sides').querySelectorAll('button')) {
-      b.addEventListener('click', () => { $('setup').close(); newGame(b.dataset.side, pickedElo); });
+      b.addEventListener('click', () => {
+        $('setup').close();
+        if (!$('custom-time').hidden) readCustomTime();
+        newGame(b.dataset.side, pickedElo, pickedTc);
+      });
     }
     $('setup-close').addEventListener('click', () => $('setup').close());
     $('elo').addEventListener('input', () => { pickedElo = +$('elo').value; showPickedElo(); });
@@ -2505,6 +2720,7 @@ https://github.com/shaack/cm-chessboard
       e.preventDefault();
     });
 
+    setInterval(tick, 100);
     if (restored) analyse();
     else openSetup();
   }
