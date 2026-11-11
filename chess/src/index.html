@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Offline Chess</title>
+<style>
+/*{{CSS}}*/
+</style>
+</head>
+<body>
+<!--{{PIECES}}-->
+<header>
+  <h1>Offline Chess</h1>
+  <span>Play the computer. Everything is in this one file; no internet needed.</span>
+</header>
+<main>
+  <div id="board-wrap">
+    <div id="board"></div>
+    <div id="promo" hidden></div>
+  </div>
+  <aside id="panel">
+    <div class="player" id="player-top"><span class="dot"></span><span class="name"></span><span class="captured"></span></div>
+    <div id="moves"></div>
+    <div id="nav">
+      <button id="nav-first" title="First move (Up arrow)">&#x23EE;&#xFE0E;</button>
+      <button id="nav-prev" title="Previous move (Left arrow)">&#x25C0;&#xFE0E;</button>
+      <button id="nav-next" title="Next move (Right arrow)">&#x25B6;&#xFE0E;</button>
+      <button id="nav-last" title="Last move (Down arrow)">&#x23ED;&#xFE0E;</button>
+      <button id="nav-flip" title="Flip board (F)">&#x21C5;</button>
+    </div>
+    <div id="status"></div>
+    <div id="actions">
+      <button id="btn-takeback">Takeback</button>
+      <button id="btn-resign">Resign</button>
+      <button id="btn-new">New game</button>
+    </div>
+    <div class="player" id="player-bottom"><span class="dot"></span><span class="name"></span><span class="captured"></span></div>
+    <div id="extras">
+      <button id="btn-pgn">Copy PGN</button>
+      <button id="btn-sound">Sound: on</button>
+    </div>
+  </aside>
+</main>
+
+<dialog id="setup">
+  <h2>Play with the computer</h2>
+  <h3>Strength</h3>
+  <div id="levels"></div>
+  <p id="level-note"></p>
+  <h3>Choose your side</h3>
+  <div id="sides">
+    <button data-side="black" title="Black"><svg viewBox="0 0 40 40"><use href="#bk"/></svg></button>
+    <button data-side="random" class="big" title="Random side"><span class="half"><svg viewBox="0 0 40 40"><use href="#wk"/></svg><svg viewBox="0 0 40 40"><use href="#bk"/></svg></span></button>
+    <button data-side="white" title="White"><svg viewBox="0 0 40 40"><use href="#wk"/></svg></button>
+  </div>
+  <button class="close" id="setup-close">Cancel</button>
+</dialog>
+
+<script id="engine-src">
+/*{{ENGINE}}*/
+</script>
+<script>
+/*{{UI}}*/
+</script>
+</body>
+</html>
