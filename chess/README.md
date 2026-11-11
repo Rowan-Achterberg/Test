@@ -44,7 +44,11 @@ Stockfish also drives the display:
 - **captured pieces** are lined up above and below the board, with the
   material lead.
 
-`Score: on/off` hides the bar and the score if you would rather not see them.
+- **move scores** in the move list give the computer's score after every
+  move, so you can see which move changed the game.
+
+`Eval bar: on/off` and `Move scores: on/off` hide these if you would rather
+not see them while playing.
 
 A small engine written for this project (`src/engine.js`) supplies the rules
 and notation, and takes over as the opponent if Stockfish cannot start.

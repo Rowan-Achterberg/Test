@@ -248,7 +248,17 @@ body.no-eval .tray { padding-left: 0; }
   font-size: 15px;
 }
 #moves .num { padding: 4px 0; text-align: center; background: #2b2927; color: var(--dim); }
-#moves .mv { padding: 4px 10px; cursor: pointer; color: var(--text); }
+#moves .mv {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  color: var(--text);
+}
+#moves .mv .sc { font-size: 12px; font-weight: 400; color: var(--dim); }
+#moves .mv:hover .sc, #moves .mv.cur .sc { color: inherit; }
 #moves .mv:hover { background: #3692e7; color: #fff; }
 #moves .mv.cur { background: #293a49; color: #fff; font-weight: 600; }
 #moves .result {
@@ -269,6 +279,7 @@ body.no-eval .tray { padding-left: 0; }
 #score { padding: 0 12px 2px; min-height: 22px; color: var(--text); font-size: 14px; }
 #score b { color: var(--bright); font-weight: 600; }
 #actions, #extras { display: flex; gap: 8px; padding: 8px 12px; }
+#extras { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; }
 #extras { padding-top: 0; padding-bottom: 12px; }
 button {
   font: inherit;
@@ -546,7 +557,8 @@ https://github.com/shaack/cm-chessboard
     <div class="player" id="player-bottom"><span class="dot"></span><span class="name"></span></div>
     <div id="extras">
       <button id="btn-pgn">Copy PGN</button>
-      <button id="btn-eval">Score: on</button>
+      <button id="btn-eval">Eval bar: on</button>
+      <button id="btn-mscore">Move scores: on</button>
       <button id="btn-sound">Sound: on</button>
     </div>
   </aside>
@@ -1592,6 +1604,7 @@ https://github.com/shaack/cm-chessboard
     caps: [],             /* caps[i]: piece captured by move i, or 0 */
     evals: [],            /* evals[i]: { cp } or { mate }, from White's side */
     showEval: true,
+    showMoveScores: true,
     userColor: C.WHITE,
     level: 3,
     resigned: false,
@@ -1773,6 +1786,8 @@ https://github.com/shaack/cm-chessboard
       if (state.over.reason === 'checkmate') state.evals[ply] = { mate: 0, white: state.over.winner === C.WHITE };
       else if (state.over.reason !== 'resignation') state.evals[ply] = { cp: 0 };
       renderEval();
+      renderMoveScore(ply);
+      save();
       return;
     }
     if (!state.started) return;
@@ -1796,15 +1811,16 @@ https://github.com/shaack/cm-chessboard
       sfRun({ skill: cfg.skill, moves, go: cfg.go, onDone: (best) => computerPlays(best, id) });
     };
 
-    if (!state.showEval) return chooseMove();
+    if (!state.showEval && !state.showMoveScores) return chooseMove();
     sfRun({
       skill: 20, moves, go: 'movetime ' + EVAL_MS,
       onInfo: (score) => {
         if (id !== requestId) return;
         state.evals[ply] = whiteEval(score, ply);
         if (state.view === ply) renderEval();
+        renderMoveScore(ply);
       },
-      onDone: chooseMove,
+      onDone: () => { if (id === requestId) save(); chooseMove(); },
     });
   }
 
@@ -1928,6 +1944,7 @@ https://github.com/shaack/cm-chessboard
       localStorage.setItem(STORE_KEY, JSON.stringify({
         moves: state.moves, userColor: state.userColor, level: state.level,
         resigned: state.resigned, flipped: state.flipped, sound: state.sound, showEval: state.showEval,
+        showMoveScores: state.showMoveScores, evals: state.evals,
       }));
     } catch (err) { /* private mode or storage disabled: play on without saving */ }
   }
@@ -1943,6 +1960,9 @@ https://github.com/shaack/cm-chessboard
       state.flipped = !!s.flipped;
       state.sound = s.sound !== false;
       state.showEval = s.showEval !== false;
+      state.showMoveScores = s.showMoveScores !== false;
+      state.evals = Array.isArray(s.evals)
+        ? s.evals.map((e) => (e && (typeof e.cp === 'number' || typeof e.mate === 'number') ? e : undefined)) : [];
       rebuild();
       state.started = true;
       return true;
@@ -2062,6 +2082,27 @@ https://github.com/shaack/cm-chessboard
 
   /* -------------------------------------------------------------- panel -- */
 
+  /* An evaluation as text from the computer's side: "+0.8", "-1.2", "#3". */
+  function scoreText(ev, short) {
+    if (!ev) return '';
+    const computerIsWhite = state.userColor === C.BLACK;
+    if (ev.mate !== undefined) {
+      const computerWins = (ev.mate === 0 ? ev.white : ev.mate > 0) === computerIsWhite;
+      if (short) return (computerWins ? '#' : '\u2212#') + (ev.mate === 0 ? '' : Math.abs(ev.mate));
+      if (ev.mate === 0) return computerWins ? 'checkmate, it won' : 'checkmated';
+      return (computerWins ? 'mate in ' : 'gets mated in ') + Math.abs(ev.mate);
+    }
+    const mine = (computerIsWhite ? ev.cp : -ev.cp) / 100;
+    const shown = Math.abs(mine).toFixed(1);
+    return (shown === '0.0' ? '' : mine > 0 ? '+' : '\u2212') + shown;
+  }
+
+  /* Fill in one move's score when its evaluation arrives. */
+  function renderMoveScore(ply) {
+    const sc = $('moves').querySelector('.mv[data-ply="' + ply + '"] .sc');
+    if (sc) sc.textContent = state.showMoveScores ? scoreText(state.evals[ply], true) : '';
+  }
+
   function renderMoves() {
     const box = $('moves');
     box.textContent = '';
@@ -2078,8 +2119,14 @@ https://github.com/shaack/cm-chessboard
       }
       const mv = document.createElement('div');
       mv.className = 'mv' + (i + 1 === state.view ? ' cur' : '');
-      mv.textContent = san;
       mv.dataset.ply = i + 1;
+      const name = document.createElement('span');
+      name.textContent = san;
+      const sc = document.createElement('span');
+      sc.className = 'sc';
+      sc.title = 'Score for the computer after this move';
+      sc.textContent = state.showMoveScores ? scoreText(state.evals[i + 1], true) : '';
+      mv.append(name, sc);
       box.appendChild(mv);
     });
     if (state.over.over) {
@@ -2126,7 +2173,8 @@ https://github.com/shaack/cm-chessboard
     $('btn-resign').disabled = state.over.over || !state.moves.length;
     $('btn-new').classList.toggle('primary', state.over.over || !state.started);
     $('btn-sound').textContent = 'Sound: ' + (state.sound ? 'on' : 'off');
-    $('btn-eval').textContent = 'Score: ' + (state.showEval ? 'on' : 'off');
+    $('btn-eval').textContent = 'Eval bar: ' + (state.showEval ? 'on' : 'off');
+    $('btn-mscore').textContent = 'Move scores: ' + (state.showMoveScores ? 'on' : 'off');
   }
 
   /* The evaluation bar and the computer's score for the position on view. */
@@ -2138,19 +2186,16 @@ https://github.com/shaack/cm-chessboard
     if (!state.showEval) return;
 
     let white = 50, label = '', text = '';
-    const computerIsWhite = state.userColor === C.BLACK;
     if (ev && ev.mate !== undefined) {
       const whiteWins = ev.mate === 0 ? ev.white : ev.mate > 0;
       white = whiteWins ? 100 : 0;
       label = ev.mate === 0 ? '#' : 'M' + Math.abs(ev.mate);
-      text = ev.mate === 0 ? (whiteWins === computerIsWhite ? 'checkmate, it won' : 'checkmated')
-        : whiteWins === computerIsWhite ? 'mate in ' + Math.abs(ev.mate) : 'gets mated in ' + Math.abs(ev.mate);
+      text = scoreText(ev, false);
     } else if (ev) {
       white = 50 + 50 * (2 / (1 + Math.exp(-0.00368208 * ev.cp)) - 1);
       white = Math.max(4, Math.min(96, white));
       label = (Math.abs(ev.cp) / 100).toFixed(1);
-      const mine = (computerIsWhite ? ev.cp : -ev.cp) / 100;
-      text = (mine > 0 ? '+' : mine < 0 ? '\u2212' : '') + Math.abs(mine).toFixed(1);
+      text = scoreText(ev, false);
     }
     bar.classList.toggle('flipped', state.flipped);
     $('evalfill').style.height = white + '%';
@@ -2414,6 +2459,12 @@ https://github.com/shaack/cm-chessboard
       save();
       renderAll(false);
       if (state.showEval && !thinking) analyse();
+    });
+    $('btn-mscore').addEventListener('click', () => {
+      state.showMoveScores = !state.showMoveScores;
+      save();
+      renderAll(false);
+      if (state.showMoveScores && !thinking) analyse();
     });
     $('btn-pgn').addEventListener('click', () => {
       copyText(buildPgn()).then((ok) => {

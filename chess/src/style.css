@@ -241,7 +241,17 @@ body.no-eval .tray { padding-left: 0; }
   font-size: 15px;
 }
 #moves .num { padding: 4px 0; text-align: center; background: #2b2927; color: var(--dim); }
-#moves .mv { padding: 4px 10px; cursor: pointer; color: var(--text); }
+#moves .mv {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  color: var(--text);
+}
+#moves .mv .sc { font-size: 12px; font-weight: 400; color: var(--dim); }
+#moves .mv:hover .sc, #moves .mv.cur .sc { color: inherit; }
 #moves .mv:hover { background: #3692e7; color: #fff; }
 #moves .mv.cur { background: #293a49; color: #fff; font-weight: 600; }
 #moves .result {
@@ -262,6 +272,7 @@ body.no-eval .tray { padding-left: 0; }
 #score { padding: 0 12px 2px; min-height: 22px; color: var(--text); font-size: 14px; }
 #score b { color: var(--bright); font-weight: 600; }
 #actions, #extras { display: flex; gap: 8px; padding: 8px 12px; }
+#extras { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; }
 #extras { padding-top: 0; padding-bottom: 12px; }
 button {
   font: inherit;
