@@ -12,15 +12,22 @@
 <!--{{PIECES}}-->
 <header>
   <h1>Offline Chess</h1>
-  <span>Play the computer. Everything is in this one file; no internet needed.</span>
+  <span>Play Stockfish offline. Everything is in this one file; no internet needed.</span>
 </header>
 <main>
-  <div id="board-wrap">
-    <div id="board"></div>
-    <div id="promo" hidden></div>
+  <div id="board-col">
+    <div class="tray" id="tray-top"></div>
+    <div id="board-row">
+      <div id="evalbar" title="Evaluation: who is ahead"><div id="evalfill"></div><div id="evalnum"></div></div>
+      <div id="board-wrap">
+        <div id="board"></div>
+        <div id="promo" hidden></div>
+      </div>
+    </div>
+    <div class="tray" id="tray-bottom"></div>
   </div>
   <aside id="panel">
-    <div class="player" id="player-top"><span class="dot"></span><span class="name"></span><span class="captured"></span></div>
+    <div class="player" id="player-top"><span class="dot"></span><span class="name"></span></div>
     <div id="moves"></div>
     <div id="nav">
       <button id="nav-first" title="First move (Up arrow)">&#x23EE;&#xFE0E;</button>
@@ -30,14 +37,16 @@
       <button id="nav-flip" title="Flip board (F)">&#x21C5;</button>
     </div>
     <div id="status"></div>
+    <div id="score"></div>
     <div id="actions">
       <button id="btn-takeback">Takeback</button>
       <button id="btn-resign">Resign</button>
       <button id="btn-new">New game</button>
     </div>
-    <div class="player" id="player-bottom"><span class="dot"></span><span class="name"></span><span class="captured"></span></div>
+    <div class="player" id="player-bottom"><span class="dot"></span><span class="name"></span></div>
     <div id="extras">
       <button id="btn-pgn">Copy PGN</button>
+      <button id="btn-eval">Score: on</button>
       <button id="btn-sound">Sound: on</button>
     </div>
   </aside>
@@ -57,6 +66,13 @@
   <button class="close" id="setup-close">Cancel</button>
 </dialog>
 
+<!--
+  Stockfish (GPLv3), embedded so the game needs no network.
+  Stockfish.js 19 lite, single-threaded: https://github.com/nmrugg/stockfish.js
+  Stockfish: https://github.com/official-stockfish/Stockfish
+-->
+<script id="sf-wasm" type="text/plain">/*{{SF_WASM}}*/</script>
+<script id="sf-js" type="text/plain">/*{{SF_JS}}*/</script>
 <script id="engine-src">
 /*{{ENGINE}}*/
 </script>

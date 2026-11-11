@@ -29,17 +29,25 @@ and insufficient material.
 
 ## The computer opponent
 
-The engine is written for this project in plain JavaScript and runs in a
-background worker so the board never freezes. It is an iterative-deepening
-principal variation search with a transposition table, null-move pruning, late
-move reductions, killer and history ordering, check extensions and a
-quiescence search, over a 0x88 board with Zobrist hashing. Evaluation is
-material plus piece-square tables, passed pawns, the bishop pair and an
-endgame mop-up term.
+The opponent is **Stockfish 19** (the lite, single-threaded WebAssembly build
+from [stockfish.js](https://github.com/nmrugg/stockfish.js)). It is embedded
+inside `chess.html` itself, so it runs with no network; the file is about
+2.5 MB because of it. Levels 1 to 7 use Stockfish's own Skill Level setting
+with a limited search depth, and the two lowest also play an occasional random
+move; level 8 is Stockfish at full strength, thinking two seconds a move.
 
-Levels 1 to 5 search 1 to 4 moves deep and add deliberate error; levels 6 to 8
-play at full strength with more thinking time (up to about 4 seconds a move).
-It is a capable club-level opponent, not Stockfish.
+Stockfish also drives the display:
+
+- the **evaluation bar** left of the board shows who is ahead (light = White);
+- **Computer's score** in the side panel is the same number from the
+  computer's point of view, in pawns, or the moves to mate;
+- **captured pieces** are lined up above and below the board, with the
+  material lead.
+
+`Score: on/off` hides the bar and the score if you would rather not see them.
+
+A small engine written for this project (`src/engine.js`) supplies the rules
+and notation, and takes over as the opponent if Stockfish cannot start.
 
 ## Source
 
@@ -49,21 +57,29 @@ It is a capable club-level opponent, not Stockfish.
 | `src/ui.js` | board, input, move list, saving |
 | `src/style.css`, `src/index.html` | appearance and page skeleton |
 | `src/pieces.svg` | piece artwork |
+| `vendor/stockfish/` | the Stockfish build that gets embedded, with its licence |
 | `build.js` | joins the sources into `chess.html` |
 | `test/test.js` | engine tests |
 
     node chess/test/test.js   # run the tests
     node chess/build.js       # rebuild chess.html
 
-The tests check move generation by perft against the published node counts for
+The tests cover the project's own engine. They check move generation by perft against the published node counts for
 six standard positions (over 16 million positions in total), plus hashing,
 notation, every draw rule, tactical test positions and self-play at each level.
 
-## Credits
+## Credits and licence
 
-The chess pieces are the standard Wikimedia Commons set by Colin M.L. Burnett
-(User:Cburnett) and User:Rfc1394, licensed
-[CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/), in the sprite
-form prepared by Stefan Haack for
-[cm-chessboard](https://github.com/shaack/cm-chessboard). The piece-square
-tables are from Tomasz Michniewski's "Simplified Evaluation Function".
+- **Stockfish** by the Stockfish developers, and **Stockfish.js** by Nathan
+  Rugg and Chess.com, are licensed under the GNU GPL version 3
+  (`vendor/stockfish/COPYING.txt`). Because `chess.html` contains Stockfish,
+  that file as a whole is distributed under the GPL v3. Source:
+  [official-stockfish/Stockfish](https://github.com/official-stockfish/Stockfish)
+  and [nmrugg/stockfish.js](https://github.com/nmrugg/stockfish.js).
+- The **chess pieces** are the standard Wikimedia Commons set by Colin M.L.
+  Burnett (User:Cburnett) and User:Rfc1394, licensed
+  [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/), in the
+  sprite form prepared by Stefan Haack for
+  [cm-chessboard](https://github.com/shaack/cm-chessboard).
+- The piece-square tables in `src/engine.js` are from Tomasz Michniewski's
+  "Simplified Evaluation Function".

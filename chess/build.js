@@ -20,7 +20,13 @@ const pieces = src('pieces.svg')
     'style="position:absolute;width:0;height:0;overflow:hidden">')
   .replace(/<title>[^<]*<\/title>\s*<desc>[^<]*<\/desc>/, '');
 
+/* Stockfish is embedded whole: its loader as text and its WebAssembly as
+   base64. ui.js hands both to a Web Worker, so nothing is ever downloaded. */
+const vendor = (name) => fs.readFileSync(path.join(__dirname, 'vendor', 'stockfish', name));
+
 const parts = {
+  '/*{{SF_WASM}}*/': vendor('stockfish-19-lite-single.wasm').toString('base64'),
+  '/*{{SF_JS}}*/': vendor('stockfish-19-lite-single.js').toString('utf8'),
   '/*{{CSS}}*/': src('style.css'),
   '<!--{{PIECES}}-->': pieces,
   '/*{{ENGINE}}*/': src('engine.js'),
@@ -38,4 +44,4 @@ if (/(src|href)\s*=\s*["']?(https?:)?\/\//i.test(html.replace(/<!--[\s\S]*?-->/g
 
 const out = path.join(__dirname, 'chess.html');
 fs.writeFileSync(out, html);
-console.log('wrote ' + path.relative(process.cwd(), out) + ' (' + Math.round(html.length / 1024) + ' KB)');
+console.log('wrote ' + path.relative(process.cwd(), out) + ' (' + (html.length / 1048576).toFixed(1) + ' MB)');

@@ -927,6 +927,13 @@
     'd2d4 g8f6 c2c4': ['e7e6', 'g7g6'],
   };
 
+  /* A book reply for the game so far, or null once the game leaves the book. */
+  function bookMove(moves, random) {
+    const replies = BOOK[moves.join(' ')];
+    if (!replies) return null;
+    return replies[Math.floor((random || Math.random)() * replies.length)];
+  }
+
   let sharedSearcher = null;
 
   /*
@@ -946,11 +953,8 @@
     if (!legal.length) return { uci: null, score: 0, depth: 0, nodes: 0 };
 
     if (cfg.book) {
-      const replies = BOOK[moves.join(' ')];
-      if (replies) {
-        const uci = replies[Math.floor(rnd() * replies.length)];
-        if (pos.findMove(uci)) return { uci, score: 0, depth: 0, nodes: 0, book: true };
-      }
+      const uci = bookMove(moves, rnd);
+      if (uci && pos.findMove(uci)) return { uci, score: 0, depth: 0, nodes: 0, book: true };
     }
     if (cfg.blunder && rnd() < cfg.blunder) {
       const m = legal[Math.floor(rnd() * legal.length)];
@@ -963,7 +967,7 @@
 
   const api = {
     WHITE, BLACK, P, N, B, R, Q, K, START_FEN, MATE, LEVELS,
-    Position, Searcher, evaluate, chooseMove,
+    Position, Searcher, evaluate, chooseMove, bookMove,
     moveFrom, moveTo, movePromo, moveFlags, moveCaptured, moveToUci, sqName, parseSq,
   };
   root.Chess = api;

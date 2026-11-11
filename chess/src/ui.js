@@ -1,7 +1,10 @@
 /*
- * ui.js - board, move list and game flow. Rules and notation come from
- * engine.js on this thread; the computer thinks in a Web Worker built from
- * the same source, so the page stays responsive.
+ * ui.js - board, move list and game flow.
+ *
+ * Rules and notation come from engine.js on this thread. The opponent is
+ * Stockfish, embedded in the page and run in a Web Worker; it also supplies
+ * the evaluation shown in the bar. If Stockfish cannot start, the small
+ * engine in engine.js takes over so the game is still playable.
  */
 (function () {
   'use strict';
@@ -11,10 +14,9 @@
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const STORE_KEY = 'offline-chess-v1';
   const LEVEL_NOTES = [
-    '', 'Beginner: plays quickly and blunders often.', 'Novice: still makes frequent mistakes.',
-    'Casual: sees simple tactics.', 'Improving: thinks three moves ahead.',
-    'Club player: thinks four moves ahead.', 'Strong: searches about six moves deep.',
-    'Very strong: thinks for about 1.5 seconds.', 'Strongest: thinks for about 4 seconds.',
+    '', 'Beginner: plays fast and blunders often.', 'Novice: still makes frequent mistakes.',
+    'Casual: misses deeper tactics.', 'Improving player.', 'Club player.',
+    'Strong club player.', 'Expert.', 'Stockfish at full strength.',
   ];
 
   const state = {
@@ -22,6 +24,9 @@
     sans: [],
     fens: [C.START_FEN],  /* fens[i]: position after i moves */
     checks: [false],
+    caps: [],             /* caps[i]: piece captured by move i, or 0 */
+    evals: [],            /* evals[i]: { cp } or { mate }, from White's side */
+    showEval: true,
     userColor: C.WHITE,
     level: 3,
     resigned: false,
@@ -40,8 +45,112 @@
   let worker = null;
   let drag = null;
   let pickedLevel = 3;
+  let thinkingSince = 0;
 
-  /* ------------------------------------------------------------- engine -- */
+  /* ---------------------------------------------------------- stockfish -- */
+
+  /* Strength levels: Stockfish's own Skill Level plus a search limit. The
+     two lowest levels also play an occasional random move. */
+  const SF_LEVELS = [
+    null,
+    { skill: 0,  go: 'depth 1',                blunder: 0.25, book: false },
+    { skill: 1,  go: 'depth 2',                blunder: 0.12, book: false },
+    { skill: 3,  go: 'depth 3',                blunder: 0,    book: true },
+    { skill: 6,  go: 'depth 5',                blunder: 0,    book: true },
+    { skill: 9,  go: 'depth 7',                blunder: 0,    book: true },
+    { skill: 13, go: 'depth 10 movetime 1000', blunder: 0,    book: true },
+    { skill: 17, go: 'depth 14 movetime 1500', blunder: 0,    book: true },
+    { skill: 20, go: 'movetime 2000',          blunder: 0,    book: true },
+  ];
+  const EVAL_MS = 400;   /* thinking time for the evaluation bar */
+
+  /* The engine asks for its .wasm file with fetch(). A page opened from disk
+     cannot fetch, so the worker is given the bytes directly instead. */
+  const SF_SHIM = `
+    self.fetch = function () {
+      var bin = atob(__b64), n = bin.length, bytes = new Uint8Array(n);
+      for (var i = 0; i < n; i++) bytes[i] = bin.charCodeAt(i);
+      return Promise.resolve(new Response(bytes, {
+        status: 200, headers: { 'Content-Type': 'application/wasm', 'Content-Length': String(n) }
+      }));
+    };
+  `;
+
+  const sf = { worker: null, status: 'off', active: null, pending: null, timer: 0 };
+
+  function sfStart() {
+    if (sf.status !== 'off') return;
+    const wasm = $('sf-wasm'), js = $('sf-js');
+    const b64 = wasm ? wasm.textContent.trim() : '';
+    if (!js || b64.length < 1000) { sf.status = 'failed'; return; }
+    try {
+      const src = 'var __b64 = ' + JSON.stringify(b64) + ';' + SF_SHIM;
+      sf.worker = new Worker(URL.createObjectURL(new Blob([src, js.textContent], { type: 'text/javascript' })));
+    } catch (err) {
+      sf.status = 'failed';
+      return;
+    }
+    sf.status = 'starting';
+    sf.worker.onmessage = (e) => sfLine(String(e.data));
+    sf.worker.onerror = sfFail;
+    sf.worker.postMessage('uci');
+    sf.timer = setTimeout(() => { if (sf.status === 'starting') sfFail(); }, 20000);
+  }
+
+  function sfFail() {
+    if (sf.status === 'failed') return;
+    sf.status = 'failed';
+    clearTimeout(sf.timer);
+    if (sf.worker) sf.worker.terminate();
+    sf.worker = sf.active = sf.pending = null;
+    analyse();   /* carry on with the built-in engine */
+  }
+
+  function sfLine(line) {
+    if (line === 'uciok') {
+      sf.worker.postMessage('setoption name Hash value 32');
+      sf.worker.postMessage('isready');
+    } else if (line === 'readyok') {
+      if (sf.status === 'starting') { sf.status = 'ready'; clearTimeout(sf.timer); sfPump(); }
+    } else if (line.startsWith('info') && sf.active) {
+      const m = / score (cp|mate) (-?\d+)/.exec(line);
+      if (!m || /(upper|lower)bound/.test(line)) return;
+      const d = / depth (\d+)/.exec(line);
+      sf.active.score = { type: m[1], value: +m[2], depth: d ? +d[1] : 0 };
+      if (!sf.active.cancelled && sf.active.onInfo) sf.active.onInfo(sf.active.score);
+    } else if (line.startsWith('bestmove') && sf.active) {
+      const job = sf.active;
+      sf.active = null;
+      if (!job.cancelled) job.onDone(line.split(' ')[1], job.score);
+      sfPump();
+    }
+  }
+
+  function sfPump() {
+    if (sf.status !== 'ready' || sf.active || !sf.pending) return;
+    const job = sf.active = sf.pending;
+    sf.pending = null;
+    sf.worker.postMessage('setoption name Skill Level value ' + job.skill);
+    sf.worker.postMessage('position startpos' + (job.moves.length ? ' moves ' + job.moves.join(' ') : ''));
+    sf.worker.postMessage('go ' + job.go);
+  }
+
+  /* Run one search; a search already running is stopped and discarded. */
+  function sfRun(job) {
+    sfCancel();
+    sf.pending = job;
+    sfPump();
+  }
+
+  function sfCancel() {
+    sf.pending = null;
+    if (sf.active && !sf.active.cancelled) {
+      sf.active.cancelled = true;
+      sf.worker.postMessage('stop');
+    }
+  }
+
+  /* ------------------------------------------------------ built-in engine -- */
 
   function makeWorker() {
     try {
@@ -52,7 +161,7 @@
         '  r.id = d.id; self.postMessage(r);' +
         '};';
       const w = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
-      w.onmessage = (e) => onEngineReply(e.data);
+      w.onmessage = (e) => { if (e.data.id === requestId && e.data.uci) computerPlays(e.data.uci, e.data.id); };
       w.onerror = () => { worker = null; if (thinking) thinkHere(requestId); };
       return w;
     } catch (err) {
@@ -60,46 +169,96 @@
     }
   }
 
-  /* Fallback when workers are unavailable: think on this thread. */
+  /* Last resort when workers are unavailable: think on this thread. */
   function thinkHere(id) {
     const moves = state.moves.slice(), level = state.level;
     setTimeout(() => {
       if (id !== requestId) return;
-      let r;
-      try { r = C.chooseMove(moves, level); } catch (err) { r = { error: String(err) }; }
-      r.id = id;
-      onEngineReply(r);
+      try { computerPlays(C.chooseMove(moves, level).uci, id); } catch (err) { /* no move */ }
     }, 30);
   }
 
-  function engineGo() {
-    if (state.over.over || pos.side === state.userColor || thinking) return;
-    thinking = true;
-    const id = ++requestId;
-    engineGo.startedAt = performance.now();
+  function builtinGo(id) {
     if (!worker) worker = makeWorker();
     if (worker) worker.postMessage({ id, moves: state.moves, level: state.level });
     else thinkHere(id);
-    renderStatus();
   }
 
-  function onEngineReply(r) {
-    if (r.id !== requestId || !thinking) return;
+  /* ------------------------------------------------------------ thinking -- */
+
+  /* Score as Stockfish reports it (for the side to move) -> White's side. */
+  function whiteEval(score, ply) {
+    const sign = ply % 2 === 0 ? 1 : -1;
+    return score.type === 'mate' ? { mate: score.value * sign, depth: score.depth }
+      : { cp: score.value * sign, depth: score.depth };
+  }
+
+  /*
+   * Called whenever the live position changes: evaluate it for the bar,
+   * then, if it is the computer's turn, choose and play its move.
+   */
+  function analyse() {
+    const id = ++requestId;
+    const ply = state.moves.length;
+    const moves = state.moves.slice();
+    thinking = false;
+    sfCancel();
+
+    if (state.over.over) {
+      if (state.over.reason === 'checkmate') state.evals[ply] = { mate: 0, white: state.over.winner === C.WHITE };
+      else if (state.over.reason !== 'resignation') state.evals[ply] = { cp: 0 };
+      renderEval();
+      return;
+    }
+    if (!state.started) return;
+
+    const computerToMove = pos.side !== state.userColor;
+    thinking = computerToMove;
+    thinkingSince = performance.now();
+    sfStart();
+    if (sf.status === 'failed') {
+      if (computerToMove) builtinGo(id);
+      return;
+    }
+
+    const chooseMove = () => {
+      if (id !== requestId || !computerToMove) return;
+      const cfg = SF_LEVELS[state.level];
+      const book = cfg.book ? C.bookMove(moves) : null;
+      if (book && pos.findMove(book)) return computerPlays(book, id);
+      if (cfg.blunder && Math.random() < cfg.blunder)
+        return computerPlays(C.moveToUci(legal[Math.floor(Math.random() * legal.length)]), id);
+      sfRun({ skill: cfg.skill, moves, go: cfg.go, onDone: (best) => computerPlays(best, id) });
+    };
+
+    if (!state.showEval) return chooseMove();
+    sfRun({
+      skill: 20, moves, go: 'movetime ' + EVAL_MS,
+      onInfo: (score) => {
+        if (id !== requestId) return;
+        state.evals[ply] = whiteEval(score, ply);
+        if (state.view === ply) renderEval();
+      },
+      onDone: chooseMove,
+    });
+  }
+
+  function computerPlays(uci, id) {
     /* An instant reply feels abrupt; give every move a short beat. */
-    const wait = Math.max(0, 350 - (performance.now() - engineGo.startedAt));
+    const wait = Math.max(0, 350 - (performance.now() - thinkingSince));
     setTimeout(() => {
-      if (r.id !== requestId || !thinking) return;
+      if (id !== requestId || !thinking) return;
       thinking = false;
-      const m = r.uci ? pos.findMove(r.uci) : 0;
+      const m = uci ? pos.findMove(uci) : 0;
       if (m) play(m, true);
       else renderAll(false);
     }, wait);
   }
 
   function cancelThinking() {
-    if (!thinking) return;
     thinking = false;
     requestId++;
+    sfCancel();
     if (worker) { worker.terminate(); worker = null; }
   }
 
@@ -116,10 +275,13 @@
     state.sans = [];
     state.fens = [pos.fen()];
     state.checks = [false];
+    state.caps = [];
+    state.evals.length = Math.min(state.evals.length, state.moves.length + 1);
     for (const uci of state.moves) {
       const m = pos.findMove(uci);
       if (!m) throw new Error('illegal move ' + uci);
       state.sans.push(pos.san(m));
+      state.caps.push(C.moveCaptured(m));
       pos.make(m);
       state.fens.push(pos.fen());
       state.checks.push(pos.inCheck());
@@ -134,6 +296,7 @@
     const capture = C.moveCaptured(m) !== 0;
     state.moves.push(C.moveToUci(m));
     state.sans.push(pos.san(m));
+    state.caps.push(C.moveCaptured(m));
     pos.make(m);
     state.fens.push(pos.fen());
     state.checks.push(pos.inCheck());
@@ -144,7 +307,7 @@
     save();
     beep(capture);
     renderAll(animate);
-    engineGo();
+    analyse();
   }
 
   function newGame(side, level) {
@@ -156,11 +319,12 @@
     state.resigned = false;
     state.flipped = state.userColor === C.BLACK;
     state.started = true;
+    state.evals = [];
     rebuild();
     save();
     buildBoard();
     renderAll(false);
-    engineGo();
+    analyse();
   }
 
   function takeback() {
@@ -174,7 +338,7 @@
     rebuild();
     save();
     renderAll(false);
-    engineGo();
+    analyse();
   }
 
   function resign() {
@@ -184,6 +348,7 @@
     state.over = currentStatus();
     save();
     renderAll(false);
+    analyse();
   }
 
   function canMove() {
@@ -197,7 +362,7 @@
     try {
       localStorage.setItem(STORE_KEY, JSON.stringify({
         moves: state.moves, userColor: state.userColor, level: state.level,
-        resigned: state.resigned, flipped: state.flipped, sound: state.sound,
+        resigned: state.resigned, flipped: state.flipped, sound: state.sound, showEval: state.showEval,
       }));
     } catch (err) { /* private mode or storage disabled: play on without saving */ }
   }
@@ -212,6 +377,7 @@
       state.resigned = !!s.resigned;
       state.flipped = !!s.flipped;
       state.sound = s.sound !== false;
+      state.showEval = s.showEval !== false;
       rebuild();
       state.started = true;
       return true;
@@ -395,9 +561,52 @@
     $('btn-resign').disabled = state.over.over || !state.moves.length;
     $('btn-new').classList.toggle('primary', state.over.over || !state.started);
     $('btn-sound').textContent = 'Sound: ' + (state.sound ? 'on' : 'off');
+    $('btn-eval').textContent = 'Score: ' + (state.showEval ? 'on' : 'off');
   }
 
-  /* Names, whose turn it is, and the material each side is ahead by. */
+  /* The evaluation bar and the computer's score for the position on view. */
+  function renderEval() {
+    document.body.classList.toggle('no-eval', !state.showEval);
+    const ev = state.started ? state.evals[state.view] : null;
+    const bar = $('evalbar'), num = $('evalnum'), line = $('score');
+    line.textContent = '';
+    if (!state.showEval) return;
+
+    let white = 50, label = '', text = '';
+    const computerIsWhite = state.userColor === C.BLACK;
+    if (ev && ev.mate !== undefined) {
+      const whiteWins = ev.mate === 0 ? ev.white : ev.mate > 0;
+      white = whiteWins ? 100 : 0;
+      label = ev.mate === 0 ? '#' : 'M' + Math.abs(ev.mate);
+      text = ev.mate === 0 ? (whiteWins === computerIsWhite ? 'checkmate, it won' : 'checkmated')
+        : whiteWins === computerIsWhite ? 'mate in ' + Math.abs(ev.mate) : 'gets mated in ' + Math.abs(ev.mate);
+    } else if (ev) {
+      white = 50 + 50 * (2 / (1 + Math.exp(-0.00368208 * ev.cp)) - 1);
+      white = Math.max(4, Math.min(96, white));
+      label = (Math.abs(ev.cp) / 100).toFixed(1);
+      const mine = (computerIsWhite ? ev.cp : -ev.cp) / 100;
+      text = (mine > 0 ? '+' : mine < 0 ? '\u2212' : '') + Math.abs(mine).toFixed(1);
+    }
+    bar.classList.toggle('flipped', state.flipped);
+    $('evalfill').style.height = white + '%';
+    /* The number sits at the end of the side that is ahead. */
+    const whiteAhead = white >= 50;
+    const atBottom = whiteAhead !== state.flipped;
+    num.className = (atBottom ? 'at-bottom' : 'at-top') + (whiteAhead ? ' on-light' : ' on-dark');
+    num.textContent = label;
+
+    if (text) {
+      line.append("Computer's score: ");
+      const b = document.createElement('b');
+      b.textContent = text;
+      line.append(b);
+    } else if (state.started) {
+      line.textContent = sf.status === 'failed' ? 'Score unavailable (Stockfish did not start).'
+        : "Computer's score: \u2026";
+    }
+  }
+
+  /* Names, whose turn it is, and the pieces each side has captured. */
   function renderPlayers() {
     const map = parseBoard(state.fens[state.view]);
     const count = {};
@@ -406,27 +615,31 @@
     const whiteToMove = state.fens[state.view].split(' ')[1] === 'w';
     const bottom = state.flipped ? C.BLACK : C.WHITE;
 
-    for (const [id, color] of [['player-bottom', bottom], ['player-top', bottom ^ 8]]) {
-      const el = $(id), white = color === C.WHITE;
+    for (const [where, color] of [['bottom', bottom], ['top', bottom ^ 8]]) {
+      const el = $('player-' + where), white = color === C.WHITE;
       el.querySelector('.dot').className = 'dot ' + (white ? 'white' : 'black');
       el.querySelector('.name').textContent = !state.started ? (white ? 'White' : 'Black')
         : color === state.userColor ? 'You' : 'Computer level ' + state.level;
       el.classList.toggle('turn', state.started && !state.over.over && white === whiteToMove);
 
-      const cap = el.querySelector('.captured');
-      cap.textContent = '';
-      let score = 0;
-      for (const t of 'qrbnp') {
-        const mine = count[white ? t.toUpperCase() : t] || 0;
-        const theirs = count[white ? t : t.toUpperCase()] || 0;
-        score += (mine - theirs) * worth[t];
-        for (let i = 0; i < mine - theirs; i++) {
-          const svg = pieceSvg(white ? t : t.toUpperCase());   /* the enemy pieces taken */
-          svg.setAttribute('class', '');
-          cap.appendChild(svg);
-        }
+      /* Tray beside the board: every piece this side has taken so far. */
+      const tray = $('tray-' + where);
+      tray.textContent = '';
+      const taken = [];
+      for (let i = white ? 0 : 1; i < state.view; i += 2) if (state.caps[i]) taken.push(state.caps[i] & 7);
+      taken.sort((a, b) => (b === C.P ? 0 : b) - (a === C.P ? 0 : a));   /* queens first, pawns last */
+      let prev = 0;
+      for (const type of taken) {
+        const ch = 'pnbrqk'[type - 1];
+        const svg = pieceSvg(white ? ch : ch.toUpperCase());
+        svg.setAttribute('class', prev && prev !== type ? 'gap' : '');
+        tray.appendChild(svg);
+        prev = type;
       }
-      if (score > 0) cap.insertAdjacentHTML('beforeend', '<span class="plus">+' + score + '</span>');
+      let lead = 0;
+      for (const t of 'qrbnp')
+        lead += ((count[white ? t.toUpperCase() : t] || 0) - (count[white ? t : t.toUpperCase()] || 0)) * worth[t];
+      if (lead > 0) tray.insertAdjacentHTML('beforeend', '<span class="plus">+' + lead + '</span>');
     }
   }
 
@@ -435,6 +648,7 @@
     renderMoves();
     renderPlayers();
     renderStatus();
+    renderEval();
   }
 
   function setView(ply) {
@@ -630,6 +844,12 @@
     $('btn-resign').addEventListener('click', resign);
     $('btn-new').addEventListener('click', openSetup);
     $('btn-sound').addEventListener('click', () => { state.sound = !state.sound; save(); renderStatus(); });
+    $('btn-eval').addEventListener('click', () => {
+      state.showEval = !state.showEval;
+      save();
+      renderAll(false);
+      if (state.showEval && !thinking) analyse();
+    });
     $('btn-pgn').addEventListener('click', () => {
       copyText(buildPgn()).then((ok) => {
         $('btn-pgn').textContent = ok ? 'Copied' : 'Copy failed';
@@ -653,7 +873,7 @@
       e.preventDefault();
     });
 
-    if (restored) engineGo();
+    if (restored) analyse();
     else openSetup();
   }
 
