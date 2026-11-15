@@ -62,7 +62,7 @@ static void check_world(const tk_game *g)
         CHECK(e->hp >= 1 && e->kind >= TK_BASIC && e->kind <= TK_ARMOR);
         CHECK(e->dir >= TK_UP && e->dir <= TK_LEFT);
     }
-    CHECK(alive <= 4);
+    CHECK(alive <= 3);
     CHECK(alive + g->killed == g->spawned);
     for (int i = 0; i < TK_MAX_BULLETS; i++) {
         const tk_bullet *b = &g->bullet[i];

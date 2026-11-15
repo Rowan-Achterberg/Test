@@ -7,17 +7,17 @@
 #define BASE_Y 384
 #define PLAYER_X 128
 #define PLAYER_Y 384
-#define MAX_ON_FIELD 4
+#define MAX_ON_FIELD 3
 
 static const int DX[4] = { 0, 1, 0, -1 };
 static const int DY[4] = { -1, 0, 1, 0 };
 
 /* Per enemy kind: speed (1/16 px per tick), bullet speed (px), armour, score. */
 static const struct { int speed, bullet, hp, score; } KIND[4] = {
-    { 12, 4, 1, 100 },   /* basic */
-    { 30, 4, 1, 200 },   /* fast  */
-    { 16, 8, 1, 300 },   /* power */
-    { 12, 4, 4, 400 },   /* armor */
+    {  8, 3, 1, 100 },   /* basic */
+    { 18, 3, 1, 200 },   /* fast  */
+    { 11, 6, 1, 300 },   /* power */
+    {  8, 3, 4, 400 },   /* armor */
 };
 
 /* ---------------------------------------------------------------- maps -- */
@@ -195,7 +195,7 @@ static void place_player(tk_game *g)
     p->y = PLAYER_Y;
     p->dir = TK_UP;
     p->speed = 28;
-    g->shield = 180;
+    g->shield = 240;
     g->respawn = 0;
 }
 
@@ -236,7 +236,7 @@ void tk_start_stage(tk_game *g, int stage)
 static void new_game(tk_game *g)
 {
     g->score = 0;
-    g->lives = 3;
+    g->lives = 5;
     g->star = 0;
     tk_start_stage(g, 1);
 }
@@ -422,9 +422,9 @@ static void update_enemies(tk_game *g)
         else e->blocked = 0;
         if (e->timer == 0 || e->blocked > 6 + rnd_below(g, 20)) rethink(g, e);
 
-        if (e->cooldown == 0 && bullets_of(g, i) == 0 && rnd_below(g, 32) == 0) {
+        if (e->cooldown == 0 && bullets_of(g, i) == 0 && rnd_below(g, 48) == 0) {
             fire(g, e, i, KIND[e->kind].bullet, 0);
-            e->cooldown = 30;
+            e->cooldown = 45;
         }
     }
     if (g->freeze > 0) g->freeze--;
@@ -447,7 +447,7 @@ static void update_enemies(tk_game *g)
             e->timer = 50;
             g->spawn_slot = (g->spawn_slot + 1) % 3;
             g->spawned++;
-            g->spawn_timer = g->stage >= 4 ? 100 : 140;
+            g->spawn_timer = g->stage >= 4 ? 140 : 180;
             break;
         }
     }
