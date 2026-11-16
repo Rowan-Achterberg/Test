@@ -7,6 +7,8 @@
 #define BASE_Y 384
 #define PLAYER_X 128
 #define PLAYER_Y 384
+#define ALLY_X 256
+#define ALLY_Y 384
 #define MAX_ON_FIELD 4
 
 static const int DX[4] = { 0, 1, 0, -1 };
@@ -180,6 +182,7 @@ static void load_map(tk_game *g, int index)
     fill_cells(g, 24, 0, 4, 4, TK_EMPTY);
     fill_cells(g, 48, 0, 4, 4, TK_EMPTY);
     fill_cells(g, PLAYER_X / 8, PLAYER_Y / 8, 4, 4, TK_EMPTY);
+    fill_cells(g, ALLY_X / 8, ALLY_Y / 8, 4, 4, TK_EMPTY);
     /* The base sits in a two-cell-thick brick fort, open ground around it. */
     fill_cells(g, 20, 44, 12, 8, TK_EMPTY);
     fill_cells(g, 22, 46, 8, 6, TK_BRICK);
@@ -199,6 +202,19 @@ static void place_player(tk_game *g)
     g->respawn = 0;
 }
 
+static void place_ally(tk_game *g)
+{
+    tk_tank *a = &g->ally;
+    memset(a, 0, sizeof *a);
+    a->state = TK_ACTIVE;
+    a->x = ALLY_X;
+    a->y = ALLY_Y;
+    a->dir = TK_UP;
+    a->speed = 24;
+    g->ally_shield = 180;
+    g->ally_respawn = 0;
+}
+
 void tk_start_stage(tk_game *g, int stage)
 {
     /* Enemy mix by stage: basic, fast, power, armor. */
@@ -214,6 +230,8 @@ void tk_start_stage(tk_game *g, int stage)
     memset(g->bullet, 0, sizeof g->bullet);
     memset(g->boom, 0, sizeof g->boom);
     place_player(g);
+    memset(&g->ally, 0, sizeof g->ally);
+    if (g->players == 2 && g->ally_lives > 0) place_ally(g);
 
     for (int kind = 0; kind < 4; kind++)
         for (int i = 0; i < mix[kind]; i++) g->queue[n++] = kind;
@@ -236,7 +254,8 @@ void tk_start_stage(tk_game *g, int stage)
 static void new_game(tk_game *g)
 {
     g->score = 0;
-    g->lives = 3;
+    g->lives = TK_LIVES;
+    g->ally_lives = g->players == 2 ? TK_LIVES : 0;
     g->star = 0;
     tk_start_stage(g, 1);
 }
@@ -247,6 +266,8 @@ void tk_init(tk_game *g, uint32_t seed)
     g->rng = seed ? seed : 0x9E3779B9u;
     load_map(g, 0);
     g->base_alive = 1;
+    g->players = 1;
+    g->menu_dir = -1;
     g->state = TK_TITLE;
 }
 
@@ -264,12 +285,14 @@ static void game_over(tk_game *g)
 /* Other tanks block a move unless the two already overlap (fresh spawns). */
 static int tank_in_way(const tk_game *g, const tk_tank *t, int nx, int ny)
 {
-    const tk_tank *p = &g->player;
-    if (t != p && p->state == TK_ACTIVE &&
-        overlap(nx, ny, 32, 32, p->x, p->y, 32, 32) && !overlap(t->x, t->y, 32, 32, p->x, p->y, 32, 32))
-        return 1;
-    for (int i = 0; i < TK_MAX_ENEMIES; i++) {
-        const tk_tank *o = &g->enemy[i];
+    const tk_tank *others[TK_MAX_ENEMIES + 2];
+    int n = 0;
+    others[n++] = &g->player;
+    others[n++] = &g->ally;
+    for (int i = 0; i < TK_MAX_ENEMIES; i++) others[n++] = &g->enemy[i];
+
+    for (int i = 0; i < n; i++) {
+        const tk_tank *o = others[i];
         if (o == t || o->state != TK_ACTIVE) continue;
         if (overlap(nx, ny, 32, 32, o->x, o->y, 32, 32) && !overlap(t->x, t->y, 32, 32, o->x, o->y, 32, 32))
             return 1;
@@ -326,7 +349,7 @@ static void fire(tk_game *g, const tk_tank *t, int owner, int speed, int power)
         b->speed = speed;
         b->owner = owner;
         b->power = power;
-        if (owner < 0) g->events |= TK_EV_SHOT;
+        if (owner == TK_OWNER_PLAYER) g->events |= TK_EV_SHOT;
         return;
     }
 }
@@ -346,8 +369,8 @@ static void update_player(tk_game *g, const tk_input *in)
         turn(g, p, in->dir);
         advance(g, p);
     }
-    if (in->fire && p->cooldown == 0 && bullets_of(g, -1) < (g->star >= 2 ? 2 : 1)) {
-        fire(g, p, -1, g->star >= 1 ? 9 : 6, g->star >= 3);
+    if (in->fire && p->cooldown == 0 && bullets_of(g, TK_OWNER_PLAYER) < (g->star >= 2 ? 2 : 1)) {
+        fire(g, p, TK_OWNER_PLAYER, g->star >= 1 ? 9 : 6, g->star >= 3);
         p->cooldown = 12;
     }
 
@@ -371,6 +394,89 @@ static void update_player(tk_game *g, const tk_input *in)
         g->score += 500;
         g->pickup = TK_PICK_NONE;
         g->events |= TK_EV_PICKUP;
+    }
+}
+
+/* Would a shell fired now fly towards the base or its fort? */
+static int base_ahead(const tk_tank *t)
+{
+    int cx = t->x + 16, cy = t->y + 16;
+    switch (t->dir) {
+    case TK_DOWN:  return cx > BASE_X - 24 && cx < BASE_X + 56;
+    case TK_LEFT:  return cy > BASE_Y - 40 && cx > BASE_X;
+    case TK_RIGHT: return cy > BASE_Y - 40 && cx < BASE_X + 32;
+    }
+    return 0;
+}
+
+static int iabs(int v) { return v < 0 ? -v : v; }
+
+/*
+ * The computer ally. It hunts the nearest enemy: line up with it on a row or
+ * column, close in, and fire when it is in the lane ahead. It shoots its way
+ * through brick when stuck, and never fires in the direction of the base.
+ */
+static void update_ally(tk_game *g)
+{
+    tk_tank *a = &g->ally;
+    if (g->players < 2) return;
+    if (a->state != TK_ACTIVE) {
+        if (g->ally_respawn > 0 && --g->ally_respawn == 0) place_ally(g);
+        return;
+    }
+    if (g->ally_shield > 0) g->ally_shield--;
+    if (a->cooldown > 0) a->cooldown--;
+    if (a->timer > 0) a->timer--;
+
+    const tk_tank *target = NULL;
+    int best = 1 << 30;
+    for (int i = 0; i < TK_MAX_ENEMIES; i++) {
+        const tk_tank *e = &g->enemy[i];
+        if (e->state != TK_ACTIVE) continue;
+        int d = iabs(e->x - a->x) + iabs(e->y - a->y);
+        if (d < best) { best = d; target = e; }
+    }
+
+    /* Where to go: the enemy, or a guard post in front of the base. */
+    int dx = (target ? target->x : ALLY_X) - a->x;
+    int dy = (target ? target->y : ALLY_Y - 64) - a->y;
+    int hold = !target && iabs(dx) + iabs(dy) < 24;
+    int want_fire = 0;
+
+    if (a->blocked > 10) {                       /* stuck: step sideways for a while */
+        turn(g, a, (a->dir + 1 + 2 * rnd_below(g, 2)) & 3);
+        a->timer = 30 + rnd_below(g, 40);
+        a->blocked = 0;
+    } else if (a->timer == 0 && !hold) {
+        int dir;
+        if (iabs(dx) < 12) dir = dy < 0 ? TK_UP : TK_DOWN;
+        else if (iabs(dy) < 12) dir = dx < 0 ? TK_LEFT : TK_RIGHT;
+        else if ((iabs(dx) < iabs(dy)) == (rnd_below(g, 100) < 65)) dir = dx < 0 ? TK_LEFT : TK_RIGHT;   /* line up first */
+        else dir = dy < 0 ? TK_UP : TK_DOWN;
+        turn(g, a, dir);
+        a->timer = 12 + rnd_below(g, 20);
+    }
+
+    /* Fire at any enemy in the lane ahead. */
+    for (int i = 0; i < TK_MAX_ENEMIES; i++) {
+        const tk_tank *e = &g->enemy[i];
+        if (e->state != TK_ACTIVE) continue;
+        int ex = e->x - a->x, ey = e->y - a->y;
+        int ahead = a->dir == TK_UP ? ey < 0 : a->dir == TK_DOWN ? ey > 0 : a->dir == TK_LEFT ? ex < 0 : ex > 0;
+        int in_lane = iabs((a->dir & 1) ? ey : ex) < 20;
+        if (ahead && in_lane) {
+            want_fire = 1;
+            if (iabs(ex) + iabs(ey) < 80) hold = 1;      /* close enough: stand and shoot */
+        }
+    }
+
+    if (!hold) {
+        if (advance(g, a)) a->blocked = 0;
+        else { a->blocked++; want_fire = 1; }            /* dig through whatever is in the way */
+    }
+    if (want_fire && !base_ahead(a) && a->cooldown == 0 && bullets_of(g, TK_OWNER_ALLY) == 0) {
+        fire(g, a, TK_OWNER_ALLY, 6, 0);
+        a->cooldown = 20;
     }
 }
 
@@ -406,7 +512,9 @@ static void update_enemies(tk_game *g)
             if (e->timer > 0) e->timer--;
             else {
                 int clear = !(g->player.state == TK_ACTIVE &&
-                              overlap(e->x, e->y, 32, 32, g->player.x, g->player.y, 32, 32));
+                              overlap(e->x, e->y, 32, 32, g->player.x, g->player.y, 32, 32)) &&
+                            !(g->ally.state == TK_ACTIVE &&
+                              overlap(e->x, e->y, 32, 32, g->ally.x, g->ally.y, 32, 32));
                 for (int j = 0; j < TK_MAX_ENEMIES && clear; j++)
                     if (j != i && g->enemy[j].state == TK_ACTIVE &&
                         overlap(e->x, e->y, 32, 32, g->enemy[j].x, g->enemy[j].y, 32, 32)) clear = 0;
@@ -476,6 +584,17 @@ static void kill_player(tk_game *g)
     else g->respawn = 70;
 }
 
+static void kill_ally(tk_game *g)
+{
+    tk_tank *a = &g->ally;
+    if (g->invincible) return;
+    add_boom(g, a->x + 16, a->y + 16, 1);
+    a->state = TK_GONE;
+    g->events |= TK_EV_EXPLODE;
+    if (--g->ally_lives > 0) g->ally_respawn = 70;       /* out of tanks: the player fights on alone */
+    else g->ally_lives = 0;
+}
+
 /* ------------------------------------------------------------- bullets -- */
 
 /*
@@ -539,6 +658,7 @@ static void update_bullets(tk_game *g)
                 add_boom(g, BASE_X + 16, BASE_Y + 16, 1);
                 if (!g->invincible) {
                     g->base_alive = 0;
+                    g->base_killer = b->owner;
                     g->events |= TK_EV_EXPLODE;
                     game_over(g);
                 }
@@ -579,6 +699,12 @@ static void update_bullets(tk_game *g)
                     if (g->shield > 0) add_boom(g, b->x + 4, b->y + 4, 0);
                     else kill_player(g);
                 }
+                tk_tank *a = &g->ally;
+                if (b->alive && a->state == TK_ACTIVE && overlap(b->x, b->y, 8, 8, a->x, a->y, 32, 32)) {
+                    b->alive = 0;
+                    if (g->ally_shield > 0) add_boom(g, b->x + 4, b->y + 4, 0);
+                    else kill_ally(g);
+                }
             }
         }
     }
@@ -601,6 +727,10 @@ void tk_update(tk_game *g, const tk_input *in)
 
     switch (g->state) {
     case TK_TITLE:
+        /* Up and down choose between one player and playing with the ally. */
+        if (in->dir != g->menu_dir && (in->dir == TK_UP || in->dir == TK_DOWN))
+            g->players = in->dir == TK_UP ? 1 : 2;
+        g->menu_dir = in->dir;
         if (in->start) new_game(g);
         break;
 
@@ -615,6 +745,7 @@ void tk_update(tk_game *g, const tk_input *in)
     case TK_PLAY:
         if (in->pause) { g->state = TK_PAUSE; break; }
         update_player(g, in);
+        update_ally(g);
         update_enemies(g);
         update_bullets(g);
         update_effects(g);
@@ -639,9 +770,10 @@ void tk_update(tk_game *g, const tk_input *in)
         update_effects(g);
         g->state = TK_OVER;
         if (g->state_timer > 120 && in->start) {
-            int hi = g->hiscore;
+            int hi = g->hiscore, players = g->players;
             tk_init(g, g->rng);
             g->hiscore = hi;
+            g->players = players;
         }
         break;
     }

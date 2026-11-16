@@ -26,6 +26,7 @@
 #define TK_MAX_BOOMS     16
 #define TK_STAGE_ENEMIES 20
 #define TK_NUM_MAPS      5
+#define TK_LIVES         5      /* tanks each side starts a game with */
 
 enum { TK_EMPTY, TK_BRICK, TK_STEEL, TK_WATER, TK_TREE };
 enum { TK_UP, TK_RIGHT, TK_DOWN, TK_LEFT };
@@ -33,6 +34,7 @@ enum { TK_TITLE, TK_INTRO, TK_PLAY, TK_PAUSE, TK_CLEAR, TK_OVER };
 enum { TK_BASIC, TK_FAST, TK_POWER, TK_ARMOR };
 enum { TK_PICK_NONE, TK_PICK_SHIELD, TK_PICK_LIFE, TK_PICK_FREEZE, TK_PICK_BOMB, TK_PICK_STAR };
 enum { TK_GONE, TK_SPAWNING, TK_ACTIVE };
+enum { TK_OWNER_PLAYER = -1, TK_OWNER_ALLY = -2 };   /* bullet owners; enemies use their index */
 
 /* Things that happened this tick, for the platform layer to make noise. */
 enum {
@@ -68,12 +70,13 @@ typedef struct {
     int tread;       /* animation phase                                   */
 } tk_tank;
 
-typedef struct { int alive, x, y, dir, speed, owner, power; } tk_bullet;   /* owner: -1 player, else enemy index */
+typedef struct { int alive, x, y, dir, speed, owner, power; } tk_bullet;
 typedef struct { int alive, x, y, age, big; } tk_boom;
 
 typedef struct {
     uint8_t   cell[TK_CELLS][TK_CELLS];   /* [row][col] */
     tk_tank   player;
+    tk_tank   ally;                       /* computer-driven partner in a 2-player game */
     tk_tank   enemy[TK_MAX_ENEMIES];
     tk_bullet bullet[TK_MAX_BULLETS];
     tk_boom   boom[TK_MAX_BOOMS];
@@ -85,6 +88,11 @@ typedef struct {
     int respawn;       /* ticks until the player reappears              */
     int freeze;        /* ticks the enemies stay frozen                 */
     int base_alive;
+    int base_killer;   /* owner of the shell that destroyed the base       */
+
+    int players;       /* 1, or 2 when the computer ally plays alongside   */
+    int menu_dir;      /* last direction seen on the title screen          */
+    int ally_lives, ally_shield, ally_respawn;
 
     int queue[TK_STAGE_ENEMIES];   /* enemy kinds in spawn order */
     int spawned, killed;

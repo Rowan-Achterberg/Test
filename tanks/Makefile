@@ -1,26 +1,31 @@
-# Tank Defender for Windows on ARM64, cross-compiled with Zig's C compiler.
+# Tank Defender for Windows, cross-compiled with Zig's C compiler.
 #
 #   make test      run the game logic tests natively
 #   make shots     also write sample frames to build/shots as .ppm
-#   make release   build release/tanks-arm64.exe
+#   make release   build release/tanks-arm64.exe and release/tanks-amd64.exe
 #
 # Zig is only used as a C cross-compiler (pip install ziglang).
-# ARCH=x86_64 builds the same program for Intel/AMD Windows.
 
 ZIG    ?= python3 -m ziglang
-ARCH   ?= aarch64
 CFLAGS ?= -std=c11 -O2 -Wall -Wextra
 SRC     = src/game.c src/render.c
-OUT     = release/tanks-$(subst aarch64,arm64,$(ARCH)).exe
+WINSRC  = $(SRC) src/main.c
+WINFLAGS = $(CFLAGS) -s -Wl,--subsystem,windows
+WINLIBS = -luser32 -lgdi32 -lwinmm
 
 .PHONY: release test shots clean
 
-release: $(OUT)
+release: release/tanks-arm64.exe release/tanks-amd64.exe
 
-$(OUT): $(SRC) src/main.c src/game.h
+# ARM64: Snapdragon and other Windows-on-ARM machines.
+release/tanks-arm64.exe: $(WINSRC) src/game.h
 	@mkdir -p release
-	$(ZIG) cc -target $(ARCH)-windows-gnu $(CFLAGS) -s -Wl,--subsystem,windows \
-		$(SRC) src/main.c -o $@ -luser32 -lgdi32 -lwinmm
+	$(ZIG) cc -target aarch64-windows-gnu $(WINFLAGS) $(WINSRC) -o $@ $(WINLIBS)
+
+# AMD64 (x86-64): ordinary Intel and AMD machines.
+release/tanks-amd64.exe: $(WINSRC) src/game.h
+	@mkdir -p release
+	$(ZIG) cc -target x86_64-windows-gnu $(WINFLAGS) $(WINSRC) -o $@ $(WINLIBS)
 
 build/test: $(SRC) tests/test.c src/game.h
 	@mkdir -p build

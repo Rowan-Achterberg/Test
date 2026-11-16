@@ -269,26 +269,32 @@ static void draw_panel(uint32_t *fb, const tk_game *g)
     }
 
     text(fb, x, 176, "LIVES", 1, C_BLACK);
+    text(fb, x, 192, "P1", 1, C_BLACK);
     snprintf(buf, sizeof buf, "%d", g->lives);
-    text(fb, x + 14, 188, buf, 2, C_BLACK);
+    text(fb, x + 20, 188, buf, 2, C_BLACK);
+    if (g->players == 2) {
+        text(fb, x, 212, "PC", 1, RGB(0x10, 0x58, 0x20));
+        snprintf(buf, sizeof buf, "%d", g->ally_lives);
+        text(fb, x + 20, 208, buf, 2, RGB(0x10, 0x58, 0x20));
+    }
 
-    text(fb, x, 224, "STAGE", 1, C_BLACK);
+    text(fb, x, 240, "STAGE", 1, C_BLACK);
     snprintf(buf, sizeof buf, "%d", g->stage ? g->stage : 1);
-    text(fb, x + 14, 236, buf, 2, C_BLACK);
+    text(fb, x + 14, 252, buf, 2, C_BLACK);
 
-    text(fb, x, 272, "SCORE", 1, C_BLACK);
+    text(fb, x, 284, "SCORE", 1, C_BLACK);
     snprintf(buf, sizeof buf, "%d", g->score);
-    text(fb, x, 284, buf, 1, C_BLACK);
+    text(fb, x, 296, buf, 1, C_BLACK);
 
-    text(fb, x, 308, "BEST", 1, C_BLACK);
+    text(fb, x, 316, "BEST", 1, C_BLACK);
     snprintf(buf, sizeof buf, "%d", g->hiscore > g->score ? g->hiscore : g->score);
-    text(fb, x, 320, buf, 1, C_BLACK);
+    text(fb, x, 328, buf, 1, C_BLACK);
 
     if (g->star > 0) {
-        text(fb, x, 344, "GUN", 1, C_BLACK);
-        for (int i = 0; i < g->star; i++) rect(fb, x + i * 12, 356, 9, 9, C_YELLOW);
+        text(fb, x, 352, "GUN", 1, C_BLACK);
+        for (int i = 0; i < g->star; i++) rect(fb, x + i * 12, 364, 9, 9, C_YELLOW);
     }
-    if (g->freeze > 0) text(fb, x, 380, "FROZEN", 1, C_BLUE);
+    if (g->freeze > 0) text(fb, x, 388, "FROZEN", 1, C_BLUE);
 }
 
 static void draw_title(uint32_t *fb, const tk_game *g)
@@ -305,15 +311,21 @@ static void draw_title(uint32_t *fb, const tk_game *g)
     }
     text_centred(fb, TK_FB_W / 2, 64, "TANK", 9, C_ORANGE);
     text_centred(fb, TK_FB_W / 2, 140, "DEFENDER", 6, C_YELLOW);
-    draw_tank(fb, TK_FB_W / 2 - 16, 204, TK_UP, (int)g->frame / 2, &GOLD);
 
-    if ((g->frame / 30) % 2 == 0) text_centred(fb, TK_FB_W / 2, 256, "PRESS ENTER TO START", 2, C_WHITE);
-    text_centred(fb, TK_FB_W / 2, 300, "ARROWS OR W A S D - MOVE", 1, C_GREY);
-    text_centred(fb, TK_FB_W / 2, 314, "SPACE - FIRE", 1, C_GREY);
-    text_centred(fb, TK_FB_W / 2, 328, "P - PAUSE    M - SOUND    ESC - QUIT", 1, C_GREY);
-    text_centred(fb, TK_FB_W / 2, 352, "DEFEND THE FLAG. DESTROY 20 TANKS TO CLEAR A STAGE.", 1, C_GREY);
+    /* the mode menu: a small tank marks the choice */
+    {
+        static const palette ALLY = { RGB(0x48, 0xb0, 0x50), RGB(0xa8, 0xf0, 0xa0), RGB(0x20, 0x68, 0x2c), RGB(0x14, 0x40, 0x1c) };
+        int two = g->players == 2;
+        text(fb, 184, 250, "1 PLAYER", 2, two ? C_GREY : C_WHITE);
+        text(fb, 184, 276, "2 PLAYERS - PC ALLY", 2, two ? C_WHITE : C_GREY);
+        draw_tank(fb, 140, (two ? 276 : 250) - 9, TK_RIGHT, (int)g->frame / 2, two ? &ALLY : &GOLD);
+    }
+    if ((g->frame / 30) % 2 == 0) text_centred(fb, TK_FB_W / 2, 314, "PRESS ENTER TO START", 2, C_WHITE);
+    text_centred(fb, TK_FB_W / 2, 346, "UP / DOWN - CHOOSE MODE", 1, C_GREY);
+    text_centred(fb, TK_FB_W / 2, 360, "ARROWS OR W A S D - MOVE      SPACE - FIRE", 1, C_GREY);
+    text_centred(fb, TK_FB_W / 2, 374, "P - PAUSE    M - SOUND    ESC - QUIT", 1, C_GREY);
     snprintf(buf, sizeof buf, "BEST %d", g->hiscore);
-    text_centred(fb, TK_FB_W / 2, 384, buf, 2, C_GREEN);
+    text_centred(fb, TK_FB_W / 2, 398, buf, 2, C_GREEN);
 }
 
 /* --------------------------------------------------------------- render -- */
@@ -367,6 +379,18 @@ void tk_render(const tk_game *g, uint32_t *fb)
             rect(fb, px - 1, py + 31, 34, 2, c);
             rect(fb, px - 1, py - 1, 2, 34, c);
             rect(fb, px + 31, py - 1, 2, 34, c);
+        }
+    }
+
+    if (g->ally.state == TK_ACTIVE) {
+        static const palette ALLY = { RGB(0x48, 0xb0, 0x50), RGB(0xa8, 0xf0, 0xa0), RGB(0x20, 0x68, 0x2c), RGB(0x14, 0x40, 0x1c) };
+        int px = FIELD_X + g->ally.x, py = FIELD_Y + g->ally.y;
+        draw_tank(fb, px, py, g->ally.dir, g->ally.tread, &ALLY);
+        if (g->ally_shield > 0 && (g->frame / 3) % 2) {
+            rect(fb, px - 1, py - 1, 34, 2, C_WHITE);
+            rect(fb, px - 1, py + 31, 34, 2, C_WHITE);
+            rect(fb, px - 1, py - 1, 2, 34, C_WHITE);
+            rect(fb, px + 31, py - 1, 2, 34, C_WHITE);
         }
     }
 

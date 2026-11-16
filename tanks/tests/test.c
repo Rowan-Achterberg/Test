@@ -53,6 +53,8 @@ static void check_world(const tk_game *g)
     if (g->state != TK_PLAY) return;
 
     if (g->player.state == TK_ACTIVE) CHECK(!tk_solid_at(g, g->player.x, g->player.y));
+    if (g->ally.state == TK_ACTIVE) CHECK(g->players == 2 && !tk_solid_at(g, g->ally.x, g->ally.y));
+    CHECK(g->ally_lives >= 0 && g->ally_lives <= TK_LIVES);
     int alive = 0;
     for (int i = 0; i < TK_MAX_ENEMIES; i++) {
         const tk_tank *e = &g->enemy[i];
@@ -191,6 +193,57 @@ static void test_stage_progress(void)
     CHECK(g.stage == 8);
 }
 
+/* Two-player mode: the computer ally must pull its weight and never hurt its own side. */
+static void test_ally(void)
+{
+    tk_input idle = { -1, 0, 0, 0 }, down = { TK_DOWN, 0, 0, 0 }, up = { TK_UP, 0, 0, 0 }, start = { -1, 0, 1, 0 };
+    tk_game g;
+
+    /* The title menu: down picks two players, up goes back to one. */
+    tk_init(&g, 11);
+    CHECK(g.players == 1);
+    tk_update(&g, &down);
+    CHECK(g.players == 2);
+    tk_update(&g, &idle);
+    tk_update(&g, &up);
+    CHECK(g.players == 1);
+    tk_update(&g, &start);
+    CHECK(g.lives == TK_LIVES && g.ally_lives == 0 && g.ally.state == TK_GONE);
+
+    /* With the human standing still, the ally alone clears stage after stage. */
+    tk_init(&g, 12);
+    tk_update(&g, &down);
+    tk_update(&g, &start);
+    CHECK(g.players == 2 && g.lives == TK_LIVES && g.ally_lives == TK_LIVES);
+    g.invincible = 1;
+    long ticks = 0;
+    while (g.stage < 6 && ticks < 1500000) {
+        tk_update(&g, &idle);
+        ticks++;
+        check_world(&g);
+        if (g.state == TK_PLAY && g.ally.state == TK_ACTIVE && g.player.state == TK_ACTIVE)
+            CHECK(!box_hit(g.ally.x, g.ally.y, g.player.x, g.player.y) || g.ally.y > 340);
+    }
+    printf("  ally alone cleared 5 stages in %ld ticks (%.1f minutes of play)\n", ticks, (double)ticks / 3600.0);
+    CHECK(g.stage == 6);
+
+    /* Real games with an idle human: however they end, the ally never shoots the base. */
+    int by_ally = 0, games = 0, ally_lost = 0;
+    for (uint32_t seed = 1; seed <= 60; seed++) {
+        tk_init(&g, seed * 7919u);
+        tk_update(&g, &down);
+        tk_update(&g, &start);
+        for (long t = 0; t < 400000 && g.state != TK_OVER; t++) { tk_update(&g, &idle); check_world(&g); }
+        if (g.state != TK_OVER) continue;
+        games++;
+        if (!g.base_alive && g.base_killer == TK_OWNER_ALLY) by_ally++;
+        if (g.ally_lives < TK_LIVES) ally_lost++;
+    }
+    printf("  %d unattended 2-player games; base shot by the ally in %d; ally lost tanks in %d\n", games, by_ally, ally_lost);
+    CHECK(games == 60 && by_ally == 0);
+    CHECK(ally_lost > 0);                                 /* the ally is not immune */
+}
+
 static void test_determinism(void)
 {
     tk_game a, b;
@@ -253,6 +306,16 @@ static void write_shots(const char *dir)
     for (int i = 0; i < 20000 && g.state != TK_OVER; i++) { tk_input in = { -1, 0, 0, 0 }; tk_update(&g, &in); }
     for (int i = 0; i < 130; i++) { tk_input in = { -1, 0, 0, 0 }; tk_update(&g, &in); }
     save_ppm(dir, "6-gameover", &g);
+
+    /* two-player mode */
+    tk_input down = { TK_DOWN, 0, 0, 0 };
+    tk_init(&g, 777);
+    tk_update(&g, &down);
+    save_ppm(dir, "7-title-2p", &g);
+    tk_update(&g, &start);
+    g.invincible = 1;
+    for (int i = 0; i < 1400; i++) { tk_input in = bot_input(&g, &d); in.fire = 0; tk_update(&g, &in); }
+    save_ppm(dir, "8-ally", &g);
     printf("  frames written to %s\n", dir);
 }
 
@@ -263,6 +326,7 @@ int main(int argc, char **argv)
     printf("determinism\n");    test_determinism();
     printf("full games\n");     test_full_games();
     printf("stage progress\n"); test_stage_progress();
+    printf("ally\n");           test_ally();
     if (argc >= 3 && strcmp(argv[1], "shots") == 0) { printf("shots\n"); write_shots(argv[2]); }
 
     printf("\n%d checks, %d failures\n", checks, failures);
