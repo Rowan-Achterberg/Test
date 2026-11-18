@@ -16,7 +16,8 @@ The title screen offers three modes:
 
 - **1 player**
 - **2 players - PC ally:** a computer-driven partner (the green tank) hunts the
-  nearest enemy, shoots its way through brick and never fires towards your flag.
+  nearest enemy and shoots its way through brick. Its shells cannot destroy
+  your flag.
 - **2 players - 2 gamepads:** two people, one gamepad each. The game goes on
   until both players are out of tanks.
 

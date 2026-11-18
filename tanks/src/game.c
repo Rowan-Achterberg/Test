@@ -436,7 +436,8 @@ static int iabs(int v) { return v < 0 ? -v : v; }
 /*
  * The computer ally. It hunts the nearest enemy: line up with it on a row or
  * column, close in, and fire when it is in the lane ahead. It shoots its way
- * through brick when stuck, and never fires in the direction of the base.
+ * through brick when stuck, except towards the base, so it leaves the fort
+ * alone; and its shells cannot harm the base even if one slips past an enemy.
  */
 static void update_ally(tk_game *g, const tk_input *in)
 {
@@ -469,7 +470,7 @@ static void update_ally(tk_game *g, const tk_input *in)
     int dx = (target ? target->x : ALLY_X) - a->x;
     int dy = (target ? target->y : ALLY_Y - 64) - a->y;
     int hold = !target && iabs(dx) + iabs(dy) < 24;
-    int want_fire = 0;
+    int want_fire = 0, dig = 0;
 
     if (a->blocked > 10) {                       /* stuck: step sideways for a while */
         turn(g, a, (a->dir + 1 + 2 * rnd_below(g, 2)) & 3);
@@ -500,9 +501,9 @@ static void update_ally(tk_game *g, const tk_input *in)
 
     if (!hold) {
         if (advance(g, a)) a->blocked = 0;
-        else { a->blocked++; want_fire = 1; }            /* dig through whatever is in the way */
+        else { a->blocked++; dig = !base_ahead(a); }     /* dig through whatever is in the way, but not the fort */
     }
-    if (want_fire && !base_ahead(a) && a->cooldown == 0 && bullets_of(g, TK_OWNER_ALLY) == 0) {
+    if ((want_fire || dig) && a->cooldown == 0 && bullets_of(g, TK_OWNER_ALLY) == 0) {
         fire(g, a, TK_OWNER_ALLY, 6, 0);
         a->cooldown = 20;
     }
@@ -691,7 +692,8 @@ static void update_bullets(tk_game *g)
             if (g->base_alive && overlap(b->x, b->y, 8, 8, BASE_X, BASE_Y, 32, 32)) {
                 b->alive = 0;
                 add_boom(g, BASE_X + 16, BASE_Y + 16, 1);
-                if (!g->invincible) {
+                /* The computer ally defends right up against the base, so its shells do not hurt it. */
+                if (!g->invincible && !(b->owner == TK_OWNER_ALLY && g->mode == TK_MODE_ALLY)) {
                     g->base_alive = 0;
                     g->base_killer = b->owner;
                     g->events |= TK_EV_EXPLODE;
