@@ -34,6 +34,7 @@ Keyboard (always player 1):
 | `Space` | fire |
 | up / down, `Enter` | choose the mode on the title screen, start |
 | `P` | pause |
+| `Y` / `B` | enemy speed: `Y` easy, `B` normal |
 | `M` | sound on / off |
 | `Esc` | quit |
 
@@ -46,6 +47,7 @@ Gamepad (Xbox layout through XInput, for example the Thunderobot G50):
 | `LT`, `RT` | fire |
 | `X` | take control of the menu |
 | `A` or Start | start; Start also pauses |
+| `Y` / `B` | enemy speed: `Y` easy, `B` normal |
 
 Firing works the same on `LT`, `RT` and `Space`: one press is one shot, and
 holding fires four times a second.
@@ -55,6 +57,15 @@ other is player 2. The first gamepad leads to begin with; whichever gamepad
 pressed `X` last takes over. With only one gamepad in two-gamepad mode, the
 keyboard is player 1 and the gamepad is player 2. If the game does not see
 your gamepad, switch it to its XInput (Xbox) mode.
+
+## Enemy speed
+
+`Y` selects **easy** and `B` selects **normal**, on the gamepad or the
+keyboard, at any time; the side panel shows the current setting. The game
+starts in easy. Normal follows the speed proportions of the classic arcade
+game (basic, power and armoured tanks at two thirds of your speed, the fast
+tank at four thirds); easy slows every enemy tank by about 40 percent. Your
+own tank is the same in both.
 
 ## What is in it
 

@@ -24,7 +24,7 @@ static int failures = 0, checks = 0;
 /* Keyboard-style input for player 1: a direction, fire held, start and pause presses. */
 static tk_input keys(int dir, int fire, int start, int pause)
 {
-    tk_input in = { { { dir, -1, 0, fire, 0 }, { -1, -1, 0, 0, 0 } }, start, pause, -1 };
+    tk_input in = { { { dir, -1, 0, fire, 0 }, { -1, -1, 0, 0, 0 } }, start, pause, -1, -1 };
     return in;
 }
 
@@ -339,6 +339,43 @@ static void test_controls(void)
     }
 }
 
+/* Enemy speed setting: easy by default, switchable at any time, and it takes effect at once. */
+static void test_difficulty(void)
+{
+    tk_game g;
+    tk_input idle = keys(-1, 0, 0, 0), start = keys(-1, 0, 1, 0), easy = idle, normal = idle;
+    easy.difficulty = 1;
+    normal.difficulty = 0;
+
+    tk_init(&g, 31);
+    CHECK(g.easy == 1);
+    tk_update(&g, &normal);
+    CHECK(g.easy == 0);
+    tk_update(&g, &idle);
+    CHECK(g.easy == 0);                                   /* it stays until changed */
+    tk_update(&g, &start);
+    g.invincible = 1;
+
+    /* Run until an enemy is driving, then compare its speed in the two settings. */
+    int e = -1;
+    for (int i = 0; i < 2000 && e < 0; i++) {
+        tk_update(&g, &idle);
+        for (int j = 0; j < TK_MAX_ENEMIES; j++) if (g.enemy[j].state == TK_ACTIVE) e = j;
+    }
+    CHECK(e >= 0);
+    if (e < 0) return;
+    tk_update(&g, &idle);
+    int fast = g.enemy[e].speed;
+    tk_update(&g, &easy);
+    tk_update(&g, &idle);
+    int slow = g.enemy[e].speed;
+    CHECK(g.easy == 1 && slow < fast && slow * 10 >= fast * 5);   /* slower, but not below half */
+    CHECK(g.player.speed == 24);                          /* the player is not affected */
+    tk_update(&g, &normal);
+    tk_update(&g, &idle);
+    CHECK(g.enemy[e].speed == fast);
+}
+
 /* Two humans: the second pad drives the green tank; play goes on until both are out. */
 static void test_two_humans(void)
 {
@@ -497,6 +534,7 @@ int main(int argc, char **argv)
     printf("ally\n");           test_ally();
     printf("controls\n");       test_controls();
     printf("two humans\n");     test_two_humans();
+    printf("difficulty\n");     test_difficulty();
     if (argc >= 3 && strcmp(argv[1], "shots") == 0) { printf("shots\n"); write_shots(argv[2]); }
 
     printf("\n%d checks, %d failures\n", checks, failures);

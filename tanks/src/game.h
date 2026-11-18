@@ -66,6 +66,7 @@ typedef struct {
     int start;     /* pressed this tick                                    */
     int pause;     /* pressed this tick                                    */
     int menu;      /* TK_UP or TK_DOWN pressed on the title screen, else -1 */
+    int difficulty;   /* 1: easy pressed, 0: normal pressed, -1: neither     */
 } tk_input;
 
 typedef struct {
@@ -102,6 +103,7 @@ typedef struct {
     int base_killer;   /* owner of the shell that destroyed the base       */
 
     int mode;          /* TK_MODE_*                                        */
+    int easy;          /* 1: slower enemy tanks; 0: classic enemy speeds   */
     int players;       /* 1 or 2, following mode                           */
     int fire_wait[2];  /* ticks until a held fire control shoots again     */
     int pads, pad_primary;   /* gamepads connected and which one leads; set by

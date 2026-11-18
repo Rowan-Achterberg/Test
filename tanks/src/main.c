@@ -32,6 +32,7 @@ static int held[4];          /* per direction: 0, or the order it was pressed in
 static int press_order;
 static int fire_held, fire_pressed, start_pressed, pause_pressed;
 static int menu_pressed = -1;
+static int difficulty_pressed = -1;
 
 static int key_dir(WPARAM vk)
 {
@@ -60,6 +61,7 @@ static void release_all(void)
  *   LT, RT       fire
  *   X            take control of the menu (the last pad to press it leads)
  *   A, Start     start; Start also pauses
+ *   Y, B         enemy speed: Y easy, B normal
  * The triggers shoot once per press and TK_FIRE_HZ times a second when held;
  * the game core does the timing from the `fire` and `shot` flags.
  */
@@ -69,7 +71,7 @@ typedef DWORD (WINAPI *xinput_get_fn)(DWORD, xinput_state *);
 
 enum {
     XB_UP = 0x0001, XB_DOWN = 0x0002, XB_LEFT = 0x0004, XB_RIGHT = 0x0008,
-    XB_START = 0x0010, XB_A = 0x1000, XB_X = 0x4000
+    XB_START = 0x0010, XB_A = 0x1000, XB_B = 0x2000, XB_X = 0x4000, XB_Y = 0x8000
 };
 #define MAX_PADS      4
 #define TRIGGER_DOWN  60        /* of 255 */
@@ -168,6 +170,8 @@ static tk_input read_input(void)
     memset(&in, 0, sizeof in);
     in.p[0].dir = in.p[0].aim = in.p[1].dir = in.p[1].aim = -1;
     in.menu = -1;
+    in.difficulty = difficulty_pressed;
+    difficulty_pressed = -1;
 
     /* keyboard: the most recently pressed direction that is still held wins */
     int best = 0;
@@ -199,6 +203,8 @@ static tk_input read_input(void)
     for (int i = 0; i < MAX_PADS; i++) {
         const gamepad *p = &pads[i];
         if (!p->connected) continue;
+        if (p->pressed & XB_Y) in.difficulty = 1;
+        if (p->pressed & XB_B) in.difficulty = 0;
         if (G.state == TK_TITLE) {
             if (i != primary) continue;                       /* only the leading pad works the menu */
             if (p->pressed & XB_UP) in.menu = TK_UP;
@@ -363,6 +369,8 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         else if (repeat) break;
         else if (wp == VK_RETURN) start_pressed = 1;
         else if (wp == 'P') pause_pressed = 1;
+        else if (wp == 'Y') difficulty_pressed = 1;
+        else if (wp == 'B') difficulty_pressed = 0;
         else if (wp == 'M') { muted = !muted; if (muted) PlaySoundA(NULL, NULL, 0); }
         else if (wp == VK_ESCAPE) DestroyWindow(hwnd);
         return 0;

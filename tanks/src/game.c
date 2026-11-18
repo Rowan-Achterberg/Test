@@ -14,12 +14,18 @@
 static const int DX[4] = { 0, 1, 0, -1 };
 static const int DY[4] = { -1, 0, 1, 0 };
 
-/* Per enemy kind: speed (1/16 px per tick), bullet speed (px), armour, score. */
-static const struct { int speed, bullet, hp, score; } KIND[4] = {
-    {  9, 4, 1, 100 },   /* basic */
-    { 20, 4, 1, 200 },   /* fast  */
-    { 12, 8, 1, 300 },   /* power */
-    {  9, 4, 4, 400 },   /* armor */
+/*
+ * Per enemy kind: speed in normal and in easy mode (1/16 px per tick), bullet
+ * speed (px), armour, score. Normal follows the proportions of the classic
+ * arcade game on this field, which is twice its size: the basic, power and
+ * armoured tanks move at two thirds of the player's speed and the fast tank
+ * at four thirds. Easy slows every enemy by about 40 percent.
+ */
+static const struct { int speed, easy_speed, bullet, hp, score; } KIND[4] = {
+    { 16,  9, 4, 1, 100 },   /* basic */
+    { 32, 20, 4, 1, 200 },   /* fast  */
+    { 16, 12, 8, 1, 300 },   /* power */
+    { 16,  9, 4, 4, 400 },   /* armor */
 };
 
 /* ---------------------------------------------------------------- maps -- */
@@ -269,6 +275,7 @@ void tk_init(tk_game *g, uint32_t seed)
     g->base_alive = 1;
     g->mode = TK_MODE_SOLO;
     g->players = 1;
+    g->easy = 1;
     g->state = TK_TITLE;
 }
 
@@ -553,6 +560,7 @@ static void update_enemies(tk_game *g)
         }
         if (g->freeze > 0) continue;
 
+        e->speed = g->easy ? KIND[e->kind].easy_speed : KIND[e->kind].speed;   /* follows the setting at once */
         if (e->cooldown > 0) e->cooldown--;
         if (e->timer > 0) e->timer--;
         if (!advance(g, e)) e->blocked++;
@@ -579,7 +587,7 @@ static void update_enemies(tk_game *g)
             e->dir = TK_DOWN;
             e->kind = g->queue[g->spawned];
             e->hp = KIND[e->kind].hp;
-            e->speed = KIND[e->kind].speed;
+            e->speed = g->easy ? KIND[e->kind].easy_speed : KIND[e->kind].speed;
             e->bonus = g->spawned == 3 || g->spawned == 10 || g->spawned == 17;
             e->timer = 50;
             g->spawn_slot = (g->spawn_slot + 1) % 3;
@@ -762,6 +770,7 @@ void tk_update(tk_game *g, const tk_input *in)
 {
     g->events = 0;
     g->frame++;
+    if (in->difficulty >= 0) g->easy = in->difficulty;   /* may be changed at any time */
 
     switch (g->state) {
     case TK_TITLE:
@@ -808,8 +817,9 @@ void tk_update(tk_game *g, const tk_input *in)
         update_effects(g);
         g->state = TK_OVER;
         if (g->state_timer > 120 && in->start) {
-            int hi = g->hiscore, mode = g->mode, pads = g->pads, primary = g->pad_primary;
+            int hi = g->hiscore, mode = g->mode, pads = g->pads, primary = g->pad_primary, easy = g->easy;
             tk_init(g, g->rng);
+            g->easy = easy;
             g->hiscore = hi;
             g->mode = mode;
             g->players = mode == TK_MODE_SOLO ? 1 : 2;

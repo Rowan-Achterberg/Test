@@ -295,6 +295,7 @@ static void draw_panel(uint32_t *fb, const tk_game *g)
         for (int i = 0; i < g->star; i++) rect(fb, x + i * 12, 364, 9, 9, C_YELLOW);
     }
     if (g->freeze > 0) text(fb, x, 388, "FROZEN", 1, C_BLUE);
+    text(fb, x, 408, g->easy ? "EASY" : "NORMAL", 1, g->easy ? RGB(0x10, 0x58, 0x20) : C_BLACK);
 }
 
 static void draw_title(uint32_t *fb, const tk_game *g)
@@ -325,8 +326,10 @@ static void draw_title(uint32_t *fb, const tk_game *g)
     if (g->pads > 0) snprintf(buf, sizeof buf, "GAMEPADS: %d   MENU: PAD %d   PRESS X TO TAKE THE MENU", g->pads, g->pad_primary + 1);
     else snprintf(buf, sizeof buf, "NO GAMEPAD FOUND - KEYBOARD ONLY");
     text_centred(fb, TK_FB_W / 2, 374, buf, 1, g->pads > 0 ? C_GREEN : C_GREY);
+    snprintf(buf, sizeof buf, "ENEMY SPEED: %s     Y - EASY     B - NORMAL", g->easy ? "EASY" : "NORMAL");
+    text_centred(fb, TK_FB_W / 2, 388, buf, 1, C_YELLOW);
     snprintf(buf, sizeof buf, "BEST %d", g->hiscore);
-    text_centred(fb, TK_FB_W / 2, 398, buf, 2, C_GREEN);
+    text_centred(fb, TK_FB_W / 2, 406, buf, 2, C_GREEN);
 }
 
 /* --------------------------------------------------------------- render -- */
