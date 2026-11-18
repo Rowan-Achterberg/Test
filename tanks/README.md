@@ -43,7 +43,7 @@ Gamepad (Xbox layout through XInput, for example the Thunderobot G50):
 | Control | Action |
 |---|---|
 | d-pad | turn the tank that way and drive |
-| right stick, any direction | drive forward along the tank's heading |
+| left or right stick, any direction | drive forward along the tank's heading |
 | `LT`, `RT` | fire |
 | `X` | take control of the menu |
 | `A` or Start | start; Start also pauses |

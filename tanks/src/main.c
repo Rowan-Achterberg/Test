@@ -57,7 +57,7 @@ static void release_all(void)
  * Xbox-layout controllers through XInput, loaded at run time so the game
  * still starts on a machine without it. Layout, per pad:
  *   d-pad        turn the tank that way and drive (it does not fire)
- *   right stick  drive forward along the heading, whichever way it is pushed
+ *   either stick drive forward along the heading, whichever way it is pushed
  *   LT, RT       fire
  *   X            take control of the menu (the last pad to press it leads)
  *   A, Start     start; Start also pauses
@@ -133,8 +133,9 @@ static void poll_pads(void)
             else if (p->pressed & DPAD[d]) p->dpad_order[d] = ++press_order;
             if (p->dpad_order[d] > best) { best = p->dpad_order[d]; p->dir = d; }
         }
-        long long rx = st.pad.rx, ry = st.pad.ry;
-        p->forward = rx * rx + ry * ry > (long long)STICK_DEAD * STICK_DEAD;
+        long long lx = st.pad.lx, ly = st.pad.ly, rx = st.pad.rx, ry = st.pad.ry;
+        long long dead = (long long)STICK_DEAD * STICK_DEAD;
+        p->forward = lx * lx + ly * ly > dead || rx * rx + ry * ry > dead;   /* either stick, any direction */
         p->fire = lt || rt;
         p->shot = trigger_pressed;
 
