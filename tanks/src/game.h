@@ -54,8 +54,8 @@ enum {
 
 /* One player's controls for a tick. Keyboard and gamepad fill different parts. */
 typedef struct {
-    int dir;       /* keyboard: turn this way and drive; -1 when nothing is held   */
-    int aim;       /* gamepad d-pad: turn this way without driving; -1 otherwise   */
+    int dir;       /* keys or d-pad: turn this way and drive; -1 when none is held */
+    int aim;       /* turn this way without driving; -1 otherwise                  */
     int forward;   /* gamepad stick: drive along the current heading               */
     int fire;      /* a fire control is held: shoot TK_FIRE_HZ times a second      */
     int shot;      /* a fire control was pressed this tick: shoot now              */

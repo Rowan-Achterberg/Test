@@ -55,12 +55,12 @@ static void release_all(void)
 /*
  * Xbox-layout controllers through XInput, loaded at run time so the game
  * still starts on a machine without it. Layout, per pad:
- *   d-pad        turn the tank that way and fire
+ *   d-pad        turn the tank that way and drive (it does not fire)
  *   right stick  drive forward along the heading, whichever way it is pushed
  *   LT, RT       fire
  *   X            take control of the menu (the last pad to press it leads)
  *   A, Start     start; Start also pauses
- * Fire controls shoot once per press and TK_FIRE_HZ times a second when held;
+ * The triggers shoot once per press and TK_FIRE_HZ times a second when held;
  * the game core does the timing from the `fire` and `shot` flags.
  */
 typedef struct { WORD buttons; BYTE lt, rt; SHORT lx, ly, rx, ry; } xpad_state;
@@ -81,7 +81,7 @@ typedef struct {
     WORD buttons, pressed;  /* held now, and newly pressed this tick     */
     int  lt, rt;
     int  dpad_order[4];     /* like held[]: which d-pad direction came last */
-    int  aim, forward, fire, shot;
+    int  dir, forward, fire, shot;
 } gamepad;
 
 static xinput_get_fn xinput_get;
@@ -112,7 +112,7 @@ static void poll_pads(void)
         if (xinput_get((DWORD)i, &st) != 0) {
             memset(p, 0, sizeof *p);
             p->retry = 60;
-            p->aim = -1;
+            p->dir = -1;
             continue;
         }
         int lt = st.pad.lt > TRIGGER_DOWN, rt = st.pad.rt > TRIGGER_DOWN;
@@ -125,16 +125,16 @@ static void poll_pads(void)
         pad_count++;
 
         int best = 0;
-        p->aim = -1;
+        p->dir = -1;
         for (int d = 0; d < 4; d++) {
             if (!(p->buttons & DPAD[d])) p->dpad_order[d] = 0;
             else if (p->pressed & DPAD[d]) p->dpad_order[d] = ++press_order;
-            if (p->dpad_order[d] > best) { best = p->dpad_order[d]; p->aim = d; }
+            if (p->dpad_order[d] > best) { best = p->dpad_order[d]; p->dir = d; }
         }
         long long rx = st.pad.rx, ry = st.pad.ry;
         p->forward = rx * rx + ry * ry > (long long)STICK_DEAD * STICK_DEAD;
-        p->fire = lt || rt || (p->buttons & (XB_UP | XB_DOWN | XB_LEFT | XB_RIGHT)) != 0;
-        p->shot = trigger_pressed || (p->pressed & (XB_UP | XB_DOWN | XB_LEFT | XB_RIGHT)) != 0;
+        p->fire = lt || rt;
+        p->shot = trigger_pressed;
 
         if (p->pressed & XB_X) primary = i;
     }
@@ -147,7 +147,7 @@ static void poll_pads(void)
 
 static void merge_pad(tk_pad *out, const gamepad *p)
 {
-    if (p->aim >= 0) out->aim = p->aim;
+    if (p->dir >= 0) out->dir = p->dir;
     out->forward |= p->forward;
     out->fire |= p->fire;
     out->shot |= p->shot;

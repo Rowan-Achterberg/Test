@@ -265,7 +265,7 @@ static int shots_during(tk_game *g, tk_input in, int ticks)
     return n;
 }
 
-/* Gamepad controls: aim without driving, drive straight ahead, tap and hold to fire. */
+/* Controls: tap and hold to fire, turn on the spot, drive straight ahead, turn and drive. */
 static void test_controls(void)
 {
     tk_game g;
@@ -315,6 +315,16 @@ static void test_controls(void)
         CHECK(g.player.x == x && g.player.y == y);
     }
 
+    /* A direction (keys or d-pad) turns and drives at once, and never fires. */
+    for (int dir = TK_UP; dir <= TK_LEFT; dir++) {
+        int x = g.player.x, y = g.player.y, shots;
+        in = keys(dir, 0, 0, 0);
+        shots = shots_during(&g, in, 16);
+        CHECK(g.player.dir == dir && shots == 0);
+        int along = (dir & 1) ? g.player.x - x : g.player.y - y, across = (dir & 1) ? g.player.y - y : g.player.x - x;
+        CHECK(iabs_t(along) == g.player.speed && iabs_t(across) <= 8);   /* 16 ticks of driving; a turn may snap to the grid */
+    }
+
     /* The stick drives along the heading, whatever the heading is. */
     static const int DXT[4] = { 0, 1, 0, -1 }, DYT[4] = { -1, 0, 1, 0 };
     for (int dir = TK_UP; dir <= TK_LEFT; dir++) {
@@ -324,7 +334,8 @@ static void test_controls(void)
         in = idle; in.p[0].forward = 1;
         for (int i = 0; i < 32; i++) tk_update(&g, &in);
         CHECK(g.player.dir == dir);
-        CHECK(g.player.x == x + DXT[dir] * 56 && g.player.y == y + DYT[dir] * 56);
+        int dist = g.player.speed * 32 / 16;
+        CHECK(g.player.x == x + DXT[dir] * dist && g.player.y == y + DYT[dir] * dist);
     }
 }
 
