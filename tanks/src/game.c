@@ -16,10 +16,10 @@ static const int DY[4] = { -1, 0, 1, 0 };
 
 /* Per enemy kind: speed (1/16 px per tick), bullet speed (px), armour, score. */
 static const struct { int speed, bullet, hp, score; } KIND[4] = {
-    { 10, 4, 1, 100 },   /* basic */
-    { 24, 4, 1, 200 },   /* fast  */
-    { 14, 8, 1, 300 },   /* power */
-    { 10, 4, 4, 400 },   /* armor */
+    {  9, 4, 1, 100 },   /* basic */
+    { 20, 4, 1, 200 },   /* fast  */
+    { 12, 8, 1, 300 },   /* power */
+    {  9, 4, 4, 400 },   /* armor */
 };
 
 /* ---------------------------------------------------------------- maps -- */
