@@ -57,7 +57,7 @@ static void release_all(void)
  * Xbox-layout controllers through XInput, loaded at run time so the game
  * still starts on a machine without it. Layout, per pad:
  *   d-pad        turn the tank that way and drive (it does not fire)
- *   either stick drive forward along the heading, whichever way it is pushed
+ *   either stick turn the tank the way the stick is pushed and drive
  *   LT, RT       fire
  *   X            take control of the menu (the last pad to press it leads)
  *   A, Start     start; Start also pauses
@@ -83,7 +83,8 @@ typedef struct {
     WORD buttons, pressed;  /* held now, and newly pressed this tick     */
     int  lt, rt;
     int  dpad_order[4];     /* like held[]: which d-pad direction came last */
-    int  dir, forward, fire, shot;
+    int  stick[2];          /* direction each stick points, or -1 when centred */
+    int  dir, fire, shot;
 } gamepad;
 
 static xinput_get_fn xinput_get;
@@ -100,6 +101,25 @@ static void load_xinput(void)
     }
 }
 
+/*
+ * Which of the four directions a stick points, or -1 inside the dead zone.
+ * The stick has to lean clearly towards the other axis before the direction
+ * changes, so holding it near a diagonal does not make the tank twitch.
+ */
+static int stick_dir(int x, int y, int previous)
+{
+    long long ax = x < 0 ? -(long long)x : x, ay = y < 0 ? -(long long)y : y;
+    if (ax * ax + ay * ay <= (long long)STICK_DEAD * STICK_DEAD) return -1;
+    int horizontal = ax > ay;
+    if (previous >= 0) {
+        int was_horizontal = previous == TK_LEFT || previous == TK_RIGHT;
+        if (was_horizontal && ay * 4 <= ax * 5) horizontal = 1;        /* stay until y leads by a quarter */
+        else if (!was_horizontal && ax * 4 <= ay * 5) horizontal = 0;
+    }
+    if (horizontal) return x > 0 ? TK_RIGHT : TK_LEFT;
+    return y > 0 ? TK_UP : TK_DOWN;                                     /* XInput: up is positive */
+}
+
 static void poll_pads(void)
 {
     static const WORD DPAD[4] = { XB_UP, XB_RIGHT, XB_DOWN, XB_LEFT };   /* in TK_UP..TK_LEFT order */
@@ -114,7 +134,7 @@ static void poll_pads(void)
         if (xinput_get((DWORD)i, &st) != 0) {
             memset(p, 0, sizeof *p);
             p->retry = 60;
-            p->dir = -1;
+            p->dir = p->stick[0] = p->stick[1] = -1;
             continue;
         }
         int lt = st.pad.lt > TRIGGER_DOWN, rt = st.pad.rt > TRIGGER_DOWN;
@@ -133,9 +153,10 @@ static void poll_pads(void)
             else if (p->pressed & DPAD[d]) p->dpad_order[d] = ++press_order;
             if (p->dpad_order[d] > best) { best = p->dpad_order[d]; p->dir = d; }
         }
-        long long lx = st.pad.lx, ly = st.pad.ly, rx = st.pad.rx, ry = st.pad.ry;
-        long long dead = (long long)STICK_DEAD * STICK_DEAD;
-        p->forward = lx * lx + ly * ly > dead || rx * rx + ry * ry > dead;   /* either stick, any direction */
+        /* The sticks steer like the d-pad: push one and the tank turns that way and drives. */
+        p->stick[0] = stick_dir(st.pad.lx, st.pad.ly, p->stick[0]);
+        p->stick[1] = stick_dir(st.pad.rx, st.pad.ry, p->stick[1]);
+        if (p->dir < 0) p->dir = p->stick[0] >= 0 ? p->stick[0] : p->stick[1];
         p->fire = lt || rt;
         p->shot = trigger_pressed;
 
@@ -151,7 +172,6 @@ static void poll_pads(void)
 static void merge_pad(tk_pad *out, const gamepad *p)
 {
     if (p->dir >= 0) out->dir = p->dir;
-    out->forward |= p->forward;
     out->fire |= p->fire;
     out->shot |= p->shot;
 }

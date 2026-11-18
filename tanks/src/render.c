@@ -322,7 +322,7 @@ static void draw_title(uint32_t *fb, const tk_game *g)
     }
     if ((g->frame / 30) % 2 == 0) text_centred(fb, TK_FB_W / 2, 318, "PRESS ENTER OR A TO START", 2, C_WHITE);
     text_centred(fb, TK_FB_W / 2, 346, "KEYS: ARROWS OR W A S D - MOVE    SPACE - FIRE    P - PAUSE", 1, C_GREY);
-    text_centred(fb, TK_FB_W / 2, 360, "PAD: D-PAD - MOVE    EITHER STICK - FORWARD    LT RT - FIRE", 1, C_GREY);
+    text_centred(fb, TK_FB_W / 2, 360, "PAD: D-PAD OR EITHER STICK - MOVE        LT RT - FIRE", 1, C_GREY);
     if (g->pads > 0) snprintf(buf, sizeof buf, "GAMEPADS: %d   MENU: PAD %d   PRESS X TO TAKE THE MENU", g->pads, g->pad_primary + 1);
     else snprintf(buf, sizeof buf, "NO GAMEPAD FOUND - KEYBOARD ONLY");
     text_centred(fb, TK_FB_W / 2, 374, buf, 1, g->pads > 0 ? C_GREEN : C_GREY);

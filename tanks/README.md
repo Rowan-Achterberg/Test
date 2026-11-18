@@ -42,8 +42,7 @@ Gamepad (Xbox layout through XInput, for example the Thunderobot G50):
 
 | Control | Action |
 |---|---|
-| d-pad | turn the tank that way and drive |
-| left or right stick, any direction | drive forward along the tank's heading |
+| d-pad, left stick or right stick | turn the tank that way and drive |
 | `LT`, `RT` | fire |
 | `X` | take control of the menu |
 | `A` or Start | start; Start also pauses |
@@ -109,7 +108,7 @@ check shell-against-wall behaviour cell by cell. For two-player mode they
 let the ally clear five stages by itself, and play 60 unattended games to
 confirm that the ally never shoots the flag. The gamepad rules are tested in
 the game core: one shot per press, exactly four shots a second when held,
-turning and driving, driving along the heading, and two-human play.
+turning and driving, and two-human play.
 
 Reading the gamepad itself (XInput in `main.c`) cannot be exercised by these
 tests or by the automated Windows launch, which has no controller attached.
