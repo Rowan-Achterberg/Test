@@ -22,11 +22,12 @@
 #define TK_TILES  13
 
 #define TK_MAX_ENEMIES   6
-#define TK_MAX_BULLETS   16
+#define TK_MAX_BULLETS   24
 #define TK_MAX_BOOMS     16
 #define TK_STAGE_ENEMIES 20
 #define TK_NUM_MAPS      5
 #define TK_LIVES         5      /* tanks each side starts a game with */
+#define TK_FIRE_HZ       4      /* shots per second while fire is held */
 
 enum { TK_EMPTY, TK_BRICK, TK_STEEL, TK_WATER, TK_TREE };
 enum { TK_UP, TK_RIGHT, TK_DOWN, TK_LEFT };
@@ -34,6 +35,7 @@ enum { TK_TITLE, TK_INTRO, TK_PLAY, TK_PAUSE, TK_CLEAR, TK_OVER };
 enum { TK_BASIC, TK_FAST, TK_POWER, TK_ARMOR };
 enum { TK_PICK_NONE, TK_PICK_SHIELD, TK_PICK_LIFE, TK_PICK_FREEZE, TK_PICK_BOMB, TK_PICK_STAR };
 enum { TK_GONE, TK_SPAWNING, TK_ACTIVE };
+enum { TK_MODE_SOLO, TK_MODE_ALLY, TK_MODE_DUO };   /* 1 player; with the computer ally; 2 humans */
 enum { TK_OWNER_PLAYER = -1, TK_OWNER_ALLY = -2 };   /* bullet owners; enemies use their index */
 
 /* Things that happened this tick, for the platform layer to make noise. */
@@ -50,11 +52,20 @@ enum {
     TK_EV_CLEAR    = 1 << 9
 };
 
+/* One player's controls for a tick. Keyboard and gamepad fill different parts. */
 typedef struct {
-    int dir;     /* TK_UP..TK_LEFT, or -1 when no direction is held */
-    int fire;    /* held */
-    int start;   /* pressed this tick */
-    int pause;   /* pressed this tick */
+    int dir;       /* keyboard: turn this way and drive; -1 when nothing is held   */
+    int aim;       /* gamepad d-pad: turn this way without driving; -1 otherwise   */
+    int forward;   /* gamepad stick: drive along the current heading               */
+    int fire;      /* a fire control is held: shoot TK_FIRE_HZ times a second      */
+    int shot;      /* a fire control was pressed this tick: shoot now              */
+} tk_pad;
+
+typedef struct {
+    tk_pad p[2];   /* player 1 and player 2                                */
+    int start;     /* pressed this tick                                    */
+    int pause;     /* pressed this tick                                    */
+    int menu;      /* TK_UP or TK_DOWN pressed on the title screen, else -1 */
 } tk_input;
 
 typedef struct {
@@ -76,7 +87,7 @@ typedef struct { int alive, x, y, age, big; } tk_boom;
 typedef struct {
     uint8_t   cell[TK_CELLS][TK_CELLS];   /* [row][col] */
     tk_tank   player;
-    tk_tank   ally;                       /* computer-driven partner in a 2-player game */
+    tk_tank   ally;                       /* player 2: the computer ally or a second human */
     tk_tank   enemy[TK_MAX_ENEMIES];
     tk_bullet bullet[TK_MAX_BULLETS];
     tk_boom   boom[TK_MAX_BOOMS];
@@ -90,8 +101,11 @@ typedef struct {
     int base_alive;
     int base_killer;   /* owner of the shell that destroyed the base       */
 
-    int players;       /* 1, or 2 when the computer ally plays alongside   */
-    int menu_dir;      /* last direction seen on the title screen          */
+    int mode;          /* TK_MODE_*                                        */
+    int players;       /* 1 or 2, following mode                           */
+    int fire_wait[2];  /* ticks until a held fire control shoots again     */
+    int pads, pad_primary;   /* gamepads connected and which one leads; set by
+                                the platform layer, only shown on the title */
     int ally_lives, ally_shield, ally_respawn;
 
     int queue[TK_STAGE_ENEMIES];   /* enemy kinds in spawn order */

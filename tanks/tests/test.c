@@ -21,6 +21,20 @@ static int failures = 0, checks = 0;
     if (!(cond)) { if (failures++ < 20) printf("  FAIL %s:%d  %s\n", __FILE__, __LINE__, #cond); } \
 } while (0)
 
+/* Keyboard-style input for player 1: a direction, fire held, start and pause presses. */
+static tk_input keys(int dir, int fire, int start, int pause)
+{
+    tk_input in = { { { dir, -1, 0, fire, 0 }, { -1, -1, 0, 0, 0 } }, start, pause, -1 };
+    return in;
+}
+
+static tk_input menu(int dir)
+{
+    tk_input in = keys(-1, 0, 0, 0);
+    in.menu = dir;
+    return in;
+}
+
 static uint32_t bot_rng = 1;
 static uint32_t bot_rand(void)
 {
@@ -31,12 +45,11 @@ static uint32_t bot_rand(void)
 /* A crude player: wander, change heading now and then, keep firing. */
 static tk_input bot_input(const tk_game *g, int *dir)
 {
-    tk_input in = { *dir, 1, 0, 0 };
-    if (g->state == TK_TITLE || g->state == TK_OVER) in.start = (g->frame % 20) == 0;
     if (bot_rand() % 40 == 0) *dir = (int)(bot_rand() % 5) - 1;
-    in.dir = *dir;
-    return in;
+    return keys(*dir, 1, (g->state == TK_TITLE || g->state == TK_OVER) && (g->frame % 20) == 0, 0);
 }
+
+static int iabs_t(int v) { return v < 0 ? -v : v; }
 
 static int box_hit(int ax, int ay, int bx, int by)
 {
@@ -54,7 +67,7 @@ static void check_world(const tk_game *g)
 
     if (g->player.state == TK_ACTIVE) CHECK(!tk_solid_at(g, g->player.x, g->player.y));
     if (g->ally.state == TK_ACTIVE) CHECK(g->players == 2 && !tk_solid_at(g, g->ally.x, g->ally.y));
-    CHECK(g->ally_lives >= 0 && g->ally_lives <= TK_LIVES);
+    CHECK(g->ally_lives >= 0 && g->ally_lives < 100);
     int alive = 0;
     for (int i = 0; i < TK_MAX_ENEMIES; i++) {
         const tk_tank *e = &g->enemy[i];
@@ -100,7 +113,7 @@ static void test_maps(void)
 static void test_shooting(void)
 {
     tk_game g;
-    tk_input fire = { -1, 1, 0, 0 }, idle = { -1, 0, 0, 0 };
+    tk_input fire = keys(-1, 1, 0, 0), idle = keys(-1, 0, 0, 0);
     tk_init(&g, 3);
     tk_start_stage(&g, 1);
     g.state = TK_PLAY;
@@ -133,7 +146,7 @@ static void test_shooting(void)
     CHECK(g.cell[10][16] == TK_EMPTY && g.cell[10][15] == TK_STEEL);
 
     /* Walls stop tanks: drive up into the brick row and stay below it. */
-    tk_input up = { TK_UP, 0, 0, 0 };
+    tk_input up = keys(TK_UP, 0, 0, 0);
     for (int x = 0; x < TK_CELLS; x++) g.cell[30][x] = TK_BRICK;
     for (int i = 0; i < 600; i++) tk_update(&g, &up);
     CHECK(g.player.y == 31 * 8);
@@ -171,7 +184,7 @@ static void test_stage_progress(void)
     int dir = -1;
     long ticks = 0;
     tk_game g;
-    tk_input start = { -1, 0, 1, 0 };
+    tk_input start = keys(-1, 0, 1, 0);
     tk_init(&g, 99);
     g.invincible = 1;
     tk_update(&g, &start);
@@ -196,7 +209,7 @@ static void test_stage_progress(void)
 /* Two-player mode: the computer ally must pull its weight and never hurt its own side. */
 static void test_ally(void)
 {
-    tk_input idle = { -1, 0, 0, 0 }, down = { TK_DOWN, 0, 0, 0 }, up = { TK_UP, 0, 0, 0 }, start = { -1, 0, 1, 0 };
+    tk_input idle = keys(-1, 0, 0, 0), down = menu(TK_DOWN), up = menu(TK_UP), start = keys(-1, 0, 1, 0);
     tk_game g;
 
     /* The title menu: down picks two players, up goes back to one. */
@@ -244,6 +257,146 @@ static void test_ally(void)
     CHECK(ally_lost > 0);                                 /* the ally is not immune */
 }
 
+/* Count the player's shots over a run of identical ticks. */
+static int shots_during(tk_game *g, tk_input in, int ticks)
+{
+    int n = 0;
+    for (int i = 0; i < ticks; i++) { tk_update(g, &in); n += (g->events & TK_EV_SHOT) != 0; }
+    return n;
+}
+
+/* Gamepad controls: aim without driving, drive straight ahead, tap and hold to fire. */
+static void test_controls(void)
+{
+    tk_game g;
+    tk_input idle = keys(-1, 0, 0, 0), in;
+    tk_init(&g, 5);
+    tk_start_stage(&g, 1);
+    g.state = TK_PLAY;
+    g.invincible = 1;
+    g.spawn_timer = 1000000;                              /* no enemies in this test */
+    memset(g.cell, TK_EMPTY, sizeof g.cell);
+    g.player.x = 96; g.player.y = 200;
+
+    /* Holding fire shoots exactly four times a second. */
+    in = idle; in.p[0].fire = 1;
+    CHECK(shots_during(&g, in, 120) == 2 * TK_FIRE_HZ);
+    CHECK(shots_during(&g, idle, 60) == 0);
+
+    /* Each press is one shot, however fast the presses come. */
+    int taps = 0;
+    for (int i = 0; i < 5; i++) {
+        in = idle; in.p[0].shot = 1;
+        taps += shots_during(&g, in, 1);
+        taps += shots_during(&g, idle, 7);
+    }
+    CHECK(taps == 5);
+    shots_during(&g, idle, 200);
+
+    /* A press while already holding still fires at once, then the rhythm restarts. */
+    in = idle; in.p[0].fire = 1;
+    CHECK(shots_during(&g, in, 8) == 1);
+    in.p[0].shot = 1;
+    CHECK(shots_during(&g, in, 1) == 1);
+    in.p[0].shot = 0;
+    CHECK(shots_during(&g, in, 14) == 0);
+    CHECK(shots_during(&g, in, 1) == 1);
+    shots_during(&g, idle, 200);
+
+    /* The d-pad turns the tank on the spot. */
+    for (int dir = TK_UP; dir <= TK_LEFT; dir++) {
+        int x = g.player.x, y = g.player.y;
+        in = idle; in.p[0].aim = dir;
+        tk_update(&g, &in);
+        CHECK(g.player.dir == dir);
+        CHECK(iabs_t(g.player.x - x) <= 8 && iabs_t(g.player.y - y) <= 8);   /* only the grid snap of a turn */
+        x = g.player.x; y = g.player.y;
+        for (int i = 0; i < 30; i++) tk_update(&g, &in);
+        CHECK(g.player.x == x && g.player.y == y);
+    }
+
+    /* The stick drives along the heading, whatever the heading is. */
+    static const int DXT[4] = { 0, 1, 0, -1 }, DYT[4] = { -1, 0, 1, 0 };
+    for (int dir = TK_UP; dir <= TK_LEFT; dir++) {
+        in = idle; in.p[0].aim = dir;
+        tk_update(&g, &in);
+        int x = g.player.x, y = g.player.y;
+        in = idle; in.p[0].forward = 1;
+        for (int i = 0; i < 32; i++) tk_update(&g, &in);
+        CHECK(g.player.dir == dir);
+        CHECK(g.player.x == x + DXT[dir] * 56 && g.player.y == y + DYT[dir] * 56);
+    }
+}
+
+/* Two humans: the second pad drives the green tank; play goes on until both are out. */
+static void test_two_humans(void)
+{
+    tk_game g;
+    tk_input idle = keys(-1, 0, 0, 0), start = keys(-1, 0, 1, 0), down = menu(TK_DOWN), in;
+    tk_init(&g, 21);
+    tk_update(&g, &down);
+    tk_update(&g, &down);
+    tk_update(&g, &down);                                 /* the menu stops at the last entry */
+    CHECK(g.mode == TK_MODE_DUO && g.players == 2);
+    tk_update(&g, &start);
+    CHECK(g.lives == TK_LIVES && g.ally_lives == TK_LIVES);
+    while (g.state == TK_INTRO) tk_update(&g, &idle);
+    g.spawn_timer = 1000000;
+
+    /* Nobody touching pad 2: the green tank stays where it is (no computer driving it). */
+    int ax = g.ally.x, ay = g.ally.y;
+    for (int i = 0; i < 300; i++) tk_update(&g, &idle);
+    CHECK(g.ally.state == TK_ACTIVE && g.ally.x == ax && g.ally.y == ay);
+
+    /* Pad 2 drives and shoots the green tank only. */
+    int px = g.player.x, py = g.player.y;
+    in = idle; in.p[1].forward = 1; in.p[1].fire = 1;
+    int green = 0, yellow = 0;
+    for (int t = 0; t < 40; t++) {
+        tk_update(&g, &in);
+        for (int i = 0; i < TK_MAX_BULLETS; i++) {
+            green += g.bullet[i].alive && g.bullet[i].owner == TK_OWNER_ALLY;
+            yellow += g.bullet[i].alive && g.bullet[i].owner == TK_OWNER_PLAYER;
+        }
+    }
+    CHECK(g.ally.y < ay && g.ally.x == ax);
+    CHECK(g.player.x == px && g.player.y == py);
+    CHECK(green >= 1 && yellow == 0);
+
+    /* Player 1 loses the last tank: the game continues for player 2. */
+    g.lives = 1; g.shield = 0;
+    g.bullet[0] = (tk_bullet){ 1, g.player.x + 12, g.player.y + 4, TK_DOWN, 4, 0, 0 };   /* an enemy shell */
+    for (int i = 0; i < 20; i++) tk_update(&g, &idle);
+    CHECK(g.lives == 0 && g.player.state == TK_GONE && g.state == TK_PLAY);
+    for (int i = 0; i < 200; i++) tk_update(&g, &idle);
+    CHECK(g.player.state == TK_GONE);                     /* and does not come back */
+
+    /* Player 2 loses the last tank as well: now it is over. */
+    g.ally_lives = 1; g.ally_shield = 0;
+    g.bullet[0] = (tk_bullet){ 1, g.ally.x + 12, g.ally.y + 4, TK_DOWN, 4, 0, 0 };
+    for (int i = 0; i < 20 && g.state == TK_PLAY; i++) tk_update(&g, &idle);
+    CHECK(g.ally_lives == 0 && g.state == TK_OVER);
+
+    /* Long random play on both pads keeps every rule intact. */
+    tk_init(&g, 22);
+    tk_update(&g, &down); tk_update(&g, &down); tk_update(&g, &start);
+    g.invincible = 1;
+    long ticks = 0;
+    int aim = -1;
+    bot_rng = 9;
+    while (g.stage < 4 && ticks < 1500000) {
+        in = idle;
+        if (bot_rand() % 30 == 0) aim = (int)(bot_rand() % 4);
+        in.p[0].aim = aim; in.p[0].forward = bot_rand() % 4 != 0; in.p[0].fire = 1;
+        in.p[1].aim = (aim + 1) & 3; in.p[1].forward = bot_rand() % 3 != 0; in.p[1].shot = bot_rand() % 20 == 0;
+        tk_update(&g, &in);
+        ticks++;
+        check_world(&g);
+    }
+    printf("  two gamepad bots cleared 3 stages in %ld ticks\n", ticks);
+    CHECK(g.stage == 4);
+}
+
 static void test_determinism(void)
 {
     tk_game a, b;
@@ -276,7 +429,7 @@ static void save_ppm(const char *dir, const char *name, const tk_game *g)
 static void write_shots(const char *dir)
 {
     tk_game g;
-    tk_input start = { -1, 0, 1, 0 }, pause = { -1, 0, 0, 1 };
+    tk_input start = keys(-1, 0, 1, 0), pause = keys(-1, 0, 0, 1);
     int d = -1;
     char name[32];
 
@@ -303,19 +456,23 @@ static void write_shots(const char *dir)
     g.invincible = 0;
     g.lives = 1;
     g.shield = 0;
-    for (int i = 0; i < 20000 && g.state != TK_OVER; i++) { tk_input in = { -1, 0, 0, 0 }; tk_update(&g, &in); }
-    for (int i = 0; i < 130; i++) { tk_input in = { -1, 0, 0, 0 }; tk_update(&g, &in); }
+    for (int i = 0; i < 20000 && g.state != TK_OVER; i++) { tk_input in = keys(-1, 0, 0, 0); tk_update(&g, &in); }
+    for (int i = 0; i < 130; i++) { tk_input in = keys(-1, 0, 0, 0); tk_update(&g, &in); }
     save_ppm(dir, "6-gameover", &g);
 
     /* two-player mode */
-    tk_input down = { TK_DOWN, 0, 0, 0 };
+    tk_input down = menu(TK_DOWN);
     tk_init(&g, 777);
     tk_update(&g, &down);
     save_ppm(dir, "7-title-2p", &g);
     tk_update(&g, &start);
     g.invincible = 1;
-    for (int i = 0; i < 1400; i++) { tk_input in = bot_input(&g, &d); in.fire = 0; tk_update(&g, &in); }
+    for (int i = 0; i < 1400; i++) { tk_input in = bot_input(&g, &d); in.p[0].fire = 0; tk_update(&g, &in); }
     save_ppm(dir, "8-ally", &g);
+    tk_init(&g, 778);
+    g.pads = 2; g.pad_primary = 1;
+    tk_update(&g, &down); tk_update(&g, &down);
+    save_ppm(dir, "9-title-pads", &g);
     printf("  frames written to %s\n", dir);
 }
 
@@ -327,6 +484,8 @@ int main(int argc, char **argv)
     printf("full games\n");     test_full_games();
     printf("stage progress\n"); test_stage_progress();
     printf("ally\n");           test_ally();
+    printf("controls\n");       test_controls();
+    printf("two humans\n");     test_two_humans();
     if (argc >= 3 && strcmp(argv[1], "shots") == 0) { printf("shots\n"); write_shots(argv[2]); }
 
     printf("\n%d checks, %d failures\n", checks, failures);

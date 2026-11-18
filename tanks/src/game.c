@@ -210,7 +210,7 @@ static void place_ally(tk_game *g)
     a->x = ALLY_X;
     a->y = ALLY_Y;
     a->dir = TK_UP;
-    a->speed = 24;
+    a->speed = g->mode == TK_MODE_DUO ? 28 : 24;
     g->ally_shield = 180;
     g->ally_respawn = 0;
 }
@@ -240,6 +240,7 @@ void tk_start_stage(tk_game *g, int stage)
         g->queue[i] = g->queue[j];
         g->queue[j] = t;
     }
+    g->fire_wait[0] = g->fire_wait[1] = 0;
     g->spawned = g->killed = 0;
     g->spawn_timer = 60;
     g->spawn_slot = 0;
@@ -266,8 +267,8 @@ void tk_init(tk_game *g, uint32_t seed)
     g->rng = seed ? seed : 0x9E3779B9u;
     load_map(g, 0);
     g->base_alive = 1;
+    g->mode = TK_MODE_SOLO;
     g->players = 1;
-    g->menu_dir = -1;
     g->state = TK_TITLE;
 }
 
@@ -354,6 +355,56 @@ static void fire(tk_game *g, const tk_tank *t, int owner, int speed, int power)
     }
 }
 
+/* Steering shared by both humans: keyboard keys turn and drive at once; on
+   a gamepad the d-pad only turns and the stick only drives straight ahead. */
+static void human_drive(tk_game *g, tk_tank *t, const tk_pad *pad)
+{
+    if (pad->aim >= 0) turn(g, t, pad->aim);
+    if (pad->dir >= 0) {
+        turn(g, t, pad->dir);
+        advance(g, t);
+    } else if (pad->forward) {
+        advance(g, t);
+    }
+}
+
+/* One press is one shot; holding fires TK_FIRE_HZ times a second. */
+static void human_fire(tk_game *g, tk_tank *t, const tk_pad *pad, int owner, int *wait)
+{
+    if (t->cooldown > 0) t->cooldown--;
+    if (*wait > 0) (*wait)--;
+    if (!pad->shot && !(pad->fire && *wait == 0)) return;
+    if (t->cooldown > 0 || bullets_of(g, owner) >= 8) return;
+    fire(g, t, owner, g->star >= 1 ? 9 : 6, g->star >= 3 ? 2 : g->star >= 2 ? 1 : 0);
+    t->cooldown = 6;
+    *wait = 60 / TK_FIRE_HZ;
+}
+
+/* A human tank drove over the pickup. */
+static void collect(tk_game *g, const tk_tank *t, int second)
+{
+    if (!g->pickup || !overlap(t->x, t->y, 32, 32, g->pickup_x, g->pickup_y, 32, 32)) return;
+    switch (g->pickup) {
+    case TK_PICK_SHIELD: if (second) g->ally_shield = 600; else g->shield = 600; break;
+    case TK_PICK_LIFE:   if (second) g->ally_lives++; else g->lives++; break;
+    case TK_PICK_FREEZE: g->freeze = 480; break;
+    case TK_PICK_STAR:   if (g->star < 3) g->star++; break;
+    case TK_PICK_BOMB:
+        for (int i = 0; i < TK_MAX_ENEMIES; i++) {
+            tk_tank *e = &g->enemy[i];
+            if (e->state != TK_ACTIVE) continue;
+            add_boom(g, e->x + 16, e->y + 16, 1);
+            e->state = TK_GONE;
+            g->killed++;
+        }
+        g->events |= TK_EV_EXPLODE;
+        break;
+    }
+    g->score += 500;
+    g->pickup = TK_PICK_NONE;
+    g->events |= TK_EV_PICKUP;
+}
+
 static void update_player(tk_game *g, const tk_input *in)
 {
     tk_tank *p = &g->player;
@@ -363,38 +414,9 @@ static void update_player(tk_game *g, const tk_input *in)
         return;
     }
     if (g->shield > 0) g->shield--;
-    if (p->cooldown > 0) p->cooldown--;
-
-    if (in->dir >= 0) {
-        turn(g, p, in->dir);
-        advance(g, p);
-    }
-    if (in->fire && p->cooldown == 0 && bullets_of(g, TK_OWNER_PLAYER) < (g->star >= 2 ? 2 : 1)) {
-        fire(g, p, TK_OWNER_PLAYER, g->star >= 1 ? 9 : 6, g->star >= 3);
-        p->cooldown = 12;
-    }
-
-    if (g->pickup && overlap(p->x, p->y, 32, 32, g->pickup_x, g->pickup_y, 32, 32)) {
-        switch (g->pickup) {
-        case TK_PICK_SHIELD: g->shield = 600; break;
-        case TK_PICK_LIFE:   g->lives++; break;
-        case TK_PICK_FREEZE: g->freeze = 480; break;
-        case TK_PICK_STAR:   if (g->star < 3) g->star++; break;
-        case TK_PICK_BOMB:
-            for (int i = 0; i < TK_MAX_ENEMIES; i++) {
-                tk_tank *e = &g->enemy[i];
-                if (e->state != TK_ACTIVE) continue;
-                add_boom(g, e->x + 16, e->y + 16, 1);
-                e->state = TK_GONE;
-                g->killed++;
-            }
-            g->events |= TK_EV_EXPLODE;
-            break;
-        }
-        g->score += 500;
-        g->pickup = TK_PICK_NONE;
-        g->events |= TK_EV_PICKUP;
-    }
+    human_drive(g, p, &in->p[0]);
+    human_fire(g, p, &in->p[0], TK_OWNER_PLAYER, &g->fire_wait[0]);
+    collect(g, p, 0);
 }
 
 /* Would a shell fired now fly towards the base or its fort? */
@@ -416,7 +438,7 @@ static int iabs(int v) { return v < 0 ? -v : v; }
  * column, close in, and fire when it is in the lane ahead. It shoots its way
  * through brick when stuck, and never fires in the direction of the base.
  */
-static void update_ally(tk_game *g)
+static void update_ally(tk_game *g, const tk_input *in)
 {
     tk_tank *a = &g->ally;
     if (g->players < 2) return;
@@ -425,6 +447,12 @@ static void update_ally(tk_game *g)
         return;
     }
     if (g->ally_shield > 0) g->ally_shield--;
+    if (g->mode == TK_MODE_DUO) {                /* a second human drives it */
+        human_drive(g, a, &in->p[1]);
+        human_fire(g, a, &in->p[1], TK_OWNER_ALLY, &g->fire_wait[1]);
+        collect(g, a, 1);
+        return;
+    }
     if (a->cooldown > 0) a->cooldown--;
     if (a->timer > 0) a->timer--;
 
@@ -580,8 +608,12 @@ static void kill_player(tk_game *g)
     p->state = TK_GONE;
     g->star = 0;
     g->events |= TK_EV_DIE;
-    if (--g->lives <= 0) { g->lives = 0; game_over(g); }
-    else g->respawn = 70;
+    if (--g->lives > 0) g->respawn = 70;
+    else {
+        g->lives = 0;
+        /* With two humans the game goes on while either still has a tank. */
+        if (!(g->mode == TK_MODE_DUO && g->ally_lives > 0)) game_over(g);
+    }
 }
 
 static void kill_ally(tk_game *g)
@@ -591,8 +623,11 @@ static void kill_ally(tk_game *g)
     add_boom(g, a->x + 16, a->y + 16, 1);
     a->state = TK_GONE;
     g->events |= TK_EV_EXPLODE;
-    if (--g->ally_lives > 0) g->ally_respawn = 70;       /* out of tanks: the player fights on alone */
-    else g->ally_lives = 0;
+    if (--g->ally_lives > 0) g->ally_respawn = 70;       /* out of tanks: the other player fights on alone */
+    else {
+        g->ally_lives = 0;
+        if (g->mode == TK_MODE_DUO && g->lives == 0) game_over(g);
+    }
 }
 
 /* ------------------------------------------------------------- bullets -- */
@@ -623,7 +658,7 @@ static int hit_terrain(tk_game *g, const tk_bullet *b)
         uint8_t *c = vertical ? &g->cell[lead][a] : &g->cell[a][lead];
         if (*c == TK_BRICK) { *c = TK_EMPTY; g->events |= TK_EV_BRICK; }
         else if (*c == TK_STEEL) {
-            if (b->power) *c = TK_EMPTY;
+            if (b->power >= 2) *c = TK_EMPTY;
             g->events |= TK_EV_STEEL;
         }
     }
@@ -678,7 +713,8 @@ static void update_bullets(tk_game *g)
                     tk_tank *e = &g->enemy[j];
                     if (e->state != TK_ACTIVE || !overlap(b->x, b->y, 8, 8, e->x, e->y, 32, 32)) continue;
                     b->alive = 0;
-                    if (--e->hp > 0) {
+                    e->hp -= b->power >= 1 ? 2 : 1;          /* an upgraded gun hits twice as hard */
+                    if (e->hp > 0) {
                         e->flash = 8;
                         add_boom(g, b->x + 4, b->y + 4, 0);
                         g->events |= TK_EV_HIT;
@@ -727,10 +763,10 @@ void tk_update(tk_game *g, const tk_input *in)
 
     switch (g->state) {
     case TK_TITLE:
-        /* Up and down choose between one player and playing with the ally. */
-        if (in->dir != g->menu_dir && (in->dir == TK_UP || in->dir == TK_DOWN))
-            g->players = in->dir == TK_UP ? 1 : 2;
-        g->menu_dir = in->dir;
+        /* Up and down move through the three modes. */
+        if (in->menu == TK_UP && g->mode > TK_MODE_SOLO) g->mode--;
+        if (in->menu == TK_DOWN && g->mode < TK_MODE_DUO) g->mode++;
+        g->players = g->mode == TK_MODE_SOLO ? 1 : 2;
         if (in->start) new_game(g);
         break;
 
@@ -745,7 +781,7 @@ void tk_update(tk_game *g, const tk_input *in)
     case TK_PLAY:
         if (in->pause) { g->state = TK_PAUSE; break; }
         update_player(g, in);
-        update_ally(g);
+        update_ally(g, in);
         update_enemies(g);
         update_bullets(g);
         update_effects(g);
@@ -770,10 +806,13 @@ void tk_update(tk_game *g, const tk_input *in)
         update_effects(g);
         g->state = TK_OVER;
         if (g->state_timer > 120 && in->start) {
-            int hi = g->hiscore, players = g->players;
+            int hi = g->hiscore, mode = g->mode, pads = g->pads, primary = g->pad_primary;
             tk_init(g, g->rng);
             g->hiscore = hi;
-            g->players = players;
+            g->mode = mode;
+            g->players = mode == TK_MODE_SOLO ? 1 : 2;
+            g->pads = pads;
+            g->pad_primary = primary;
         }
         break;
     }

@@ -273,7 +273,7 @@ static void draw_panel(uint32_t *fb, const tk_game *g)
     snprintf(buf, sizeof buf, "%d", g->lives);
     text(fb, x + 20, 188, buf, 2, C_BLACK);
     if (g->players == 2) {
-        text(fb, x, 212, "PC", 1, RGB(0x10, 0x58, 0x20));
+        text(fb, x, 212, g->mode == TK_MODE_DUO ? "P2" : "PC", 1, RGB(0x10, 0x58, 0x20));
         snprintf(buf, sizeof buf, "%d", g->ally_lives);
         text(fb, x + 20, 208, buf, 2, RGB(0x10, 0x58, 0x20));
     }
@@ -300,7 +300,7 @@ static void draw_panel(uint32_t *fb, const tk_game *g)
 static void draw_title(uint32_t *fb, const tk_game *g)
 {
     static const palette GOLD = { RGB(0xe8, 0xc0, 0x30), RGB(0xff, 0xf0, 0x98), RGB(0x98, 0x74, 0x10), RGB(0x60, 0x48, 0x08) };
-    char buf[32];
+    char buf[64];
 
     rect(fb, 0, 0, TK_FB_W, TK_FB_H, C_BLACK);
     for (int i = 0; i < TK_FB_W / 8; i++) {                  /* brick bands top and bottom */
@@ -315,15 +315,16 @@ static void draw_title(uint32_t *fb, const tk_game *g)
     /* the mode menu: a small tank marks the choice */
     {
         static const palette ALLY = { RGB(0x48, 0xb0, 0x50), RGB(0xa8, 0xf0, 0xa0), RGB(0x20, 0x68, 0x2c), RGB(0x14, 0x40, 0x1c) };
-        int two = g->players == 2;
-        text(fb, 184, 250, "1 PLAYER", 2, two ? C_GREY : C_WHITE);
-        text(fb, 184, 276, "2 PLAYERS - PC ALLY", 2, two ? C_WHITE : C_GREY);
-        draw_tank(fb, 140, (two ? 276 : 250) - 9, TK_RIGHT, (int)g->frame / 2, two ? &ALLY : &GOLD);
+        static const char *const MODES[3] = { "1 PLAYER", "2 PLAYERS - PC ALLY", "2 PLAYERS - 2 GAMEPADS" };
+        for (int i = 0; i < 3; i++) text(fb, 160, 236 + i * 24, MODES[i], 2, i == g->mode ? C_WHITE : C_GREY);
+        draw_tank(fb, 116, 236 + g->mode * 24 - 9, TK_RIGHT, (int)g->frame / 2, g->mode == TK_MODE_SOLO ? &GOLD : &ALLY);
     }
-    if ((g->frame / 30) % 2 == 0) text_centred(fb, TK_FB_W / 2, 314, "PRESS ENTER TO START", 2, C_WHITE);
-    text_centred(fb, TK_FB_W / 2, 346, "UP / DOWN - CHOOSE MODE", 1, C_GREY);
-    text_centred(fb, TK_FB_W / 2, 360, "ARROWS OR W A S D - MOVE      SPACE - FIRE", 1, C_GREY);
-    text_centred(fb, TK_FB_W / 2, 374, "P - PAUSE    M - SOUND    ESC - QUIT", 1, C_GREY);
+    if ((g->frame / 30) % 2 == 0) text_centred(fb, TK_FB_W / 2, 318, "PRESS ENTER OR A TO START", 2, C_WHITE);
+    text_centred(fb, TK_FB_W / 2, 346, "KEYS: ARROWS OR W A S D - MOVE    SPACE - FIRE    P - PAUSE", 1, C_GREY);
+    text_centred(fb, TK_FB_W / 2, 360, "PAD: D-PAD - AIM AND FIRE   RIGHT STICK - DRIVE   LT RT - FIRE", 1, C_GREY);
+    if (g->pads > 0) snprintf(buf, sizeof buf, "GAMEPADS: %d   MENU: PAD %d   PRESS X TO TAKE THE MENU", g->pads, g->pad_primary + 1);
+    else snprintf(buf, sizeof buf, "NO GAMEPAD FOUND - KEYBOARD ONLY");
+    text_centred(fb, TK_FB_W / 2, 374, buf, 1, g->pads > 0 ? C_GREEN : C_GREY);
     snprintf(buf, sizeof buf, "BEST %d", g->hiscore);
     text_centred(fb, TK_FB_W / 2, 398, buf, 2, C_GREEN);
 }
@@ -397,7 +398,7 @@ void tk_render(const tk_game *g, uint32_t *fb)
     for (int i = 0; i < TK_MAX_BULLETS; i++) {
         const tk_bullet *b = &g->bullet[i];
         if (!b->alive) continue;
-        rect(fb, FIELD_X + b->x + 1, FIELD_Y + b->y + 1, 6, 6, b->power ? C_ORANGE : C_WHITE);
+        rect(fb, FIELD_X + b->x + 1, FIELD_Y + b->y + 1, 6, 6, b->power >= 2 ? C_ORANGE : C_WHITE);
         rect(fb, FIELD_X + b->x + 2, FIELD_Y + b->y + 2, 4, 4, RGB(0xd0, 0xd4, 0xdc));
     }
 

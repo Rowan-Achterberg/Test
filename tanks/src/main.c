@@ -26,11 +26,12 @@
 static tk_game  G;
 static uint32_t FB[TK_FB_W * TK_FB_H];
 
-/* ---------------------------------------------------------------- input -- */
+/* ------------------------------------------------------------- keyboard -- */
 
 static int held[4];          /* per direction: 0, or the order it was pressed in */
 static int press_order;
-static int fire_held, start_pressed, pause_pressed;
+static int fire_held, fire_pressed, start_pressed, pause_pressed;
+static int menu_pressed = -1;
 
 static int key_dir(WPARAM vk)
 {
@@ -43,21 +44,173 @@ static int key_dir(WPARAM vk)
     return -1;
 }
 
-/* The most recently pressed direction that is still held wins. */
-static tk_input read_input(void)
-{
-    tk_input in = { -1, fire_held, start_pressed, pause_pressed };
-    int best = 0;
-    for (int d = 0; d < 4; d++)
-        if (held[d] > best) { best = held[d]; in.dir = d; }
-    start_pressed = pause_pressed = 0;
-    return in;
-}
-
 static void release_all(void)
 {
     memset(held, 0, sizeof held);
     fire_held = 0;
+}
+
+/* ------------------------------------------------------------- gamepads -- */
+
+/*
+ * Xbox-layout controllers through XInput, loaded at run time so the game
+ * still starts on a machine without it. Layout, per pad:
+ *   d-pad        turn the tank that way and fire
+ *   right stick  drive forward along the heading, whichever way it is pushed
+ *   LT, RT       fire
+ *   X            take control of the menu (the last pad to press it leads)
+ *   A, Start     start; Start also pauses
+ * Fire controls shoot once per press and TK_FIRE_HZ times a second when held;
+ * the game core does the timing from the `fire` and `shot` flags.
+ */
+typedef struct { WORD buttons; BYTE lt, rt; SHORT lx, ly, rx, ry; } xpad_state;
+typedef struct { DWORD packet; xpad_state pad; } xinput_state;
+typedef DWORD (WINAPI *xinput_get_fn)(DWORD, xinput_state *);
+
+enum {
+    XB_UP = 0x0001, XB_DOWN = 0x0002, XB_LEFT = 0x0004, XB_RIGHT = 0x0008,
+    XB_START = 0x0010, XB_A = 0x1000, XB_X = 0x4000
+};
+#define MAX_PADS      4
+#define TRIGGER_DOWN  60        /* of 255 */
+#define STICK_DEAD    12000     /* of 32767 */
+
+typedef struct {
+    int  connected;
+    int  retry;             /* ticks until an empty slot is polled again */
+    WORD buttons, pressed;  /* held now, and newly pressed this tick     */
+    int  lt, rt;
+    int  dpad_order[4];     /* like held[]: which d-pad direction came last */
+    int  aim, forward, fire, shot;
+} gamepad;
+
+static xinput_get_fn xinput_get;
+static gamepad pads[MAX_PADS];
+static int pad_count;
+static int primary = -1;    /* the pad that leads: the last one to press X */
+
+static void load_xinput(void)
+{
+    static const wchar_t *const NAMES[] = { L"xinput1_4.dll", L"xinput1_3.dll", L"xinput9_1_0.dll" };
+    for (size_t i = 0; i < sizeof NAMES / sizeof NAMES[0] && !xinput_get; i++) {
+        HMODULE h = LoadLibraryW(NAMES[i]);
+        if (h) xinput_get = (xinput_get_fn)(void *)GetProcAddress(h, "XInputGetState");
+    }
+}
+
+static void poll_pads(void)
+{
+    static const WORD DPAD[4] = { XB_UP, XB_RIGHT, XB_DOWN, XB_LEFT };   /* in TK_UP..TK_LEFT order */
+    pad_count = 0;
+    for (int i = 0; i < MAX_PADS; i++) {
+        gamepad *p = &pads[i];
+        xinput_state st;
+        memset(&st, 0, sizeof st);
+        if (!xinput_get) break;
+        /* Asking about an empty slot is slow, so do it only once a second. */
+        if (!p->connected && p->retry > 0) { p->retry--; continue; }
+        if (xinput_get((DWORD)i, &st) != 0) {
+            memset(p, 0, sizeof *p);
+            p->retry = 60;
+            p->aim = -1;
+            continue;
+        }
+        int lt = st.pad.lt > TRIGGER_DOWN, rt = st.pad.rt > TRIGGER_DOWN;
+        int trigger_pressed = (lt && !p->lt) || (rt && !p->rt);
+        p->pressed = p->connected ? (WORD)(st.pad.buttons & ~p->buttons) : 0;
+        p->buttons = st.pad.buttons;
+        p->lt = lt;
+        p->rt = rt;
+        p->connected = 1;
+        pad_count++;
+
+        int best = 0;
+        p->aim = -1;
+        for (int d = 0; d < 4; d++) {
+            if (!(p->buttons & DPAD[d])) p->dpad_order[d] = 0;
+            else if (p->pressed & DPAD[d]) p->dpad_order[d] = ++press_order;
+            if (p->dpad_order[d] > best) { best = p->dpad_order[d]; p->aim = d; }
+        }
+        long long rx = st.pad.rx, ry = st.pad.ry;
+        p->forward = rx * rx + ry * ry > (long long)STICK_DEAD * STICK_DEAD;
+        p->fire = lt || rt || (p->buttons & (XB_UP | XB_DOWN | XB_LEFT | XB_RIGHT)) != 0;
+        p->shot = trigger_pressed || (p->pressed & (XB_UP | XB_DOWN | XB_LEFT | XB_RIGHT)) != 0;
+
+        if (p->pressed & XB_X) primary = i;
+    }
+    if (primary < 0 || !pads[primary].connected) {
+        primary = -1;
+        for (int i = 0; i < MAX_PADS && primary < 0; i++)
+            if (pads[i].connected) primary = i;
+    }
+}
+
+static void merge_pad(tk_pad *out, const gamepad *p)
+{
+    if (p->aim >= 0) out->aim = p->aim;
+    out->forward |= p->forward;
+    out->fire |= p->fire;
+    out->shot |= p->shot;
+}
+
+/* ---------------------------------------------------------------- input -- */
+
+/*
+ * Who controls what:
+ *   player 1  the keyboard, and the leading gamepad
+ *   player 2  the other gamepad (two-gamepad mode)
+ * With a single gamepad in two-gamepad mode, the keyboard is player 1 and
+ * the gamepad is player 2.
+ */
+static tk_input read_input(void)
+{
+    tk_input in;
+    memset(&in, 0, sizeof in);
+    in.p[0].dir = in.p[0].aim = in.p[1].dir = in.p[1].aim = -1;
+    in.menu = -1;
+
+    /* keyboard: the most recently pressed direction that is still held wins */
+    int best = 0;
+    for (int d = 0; d < 4; d++)
+        if (held[d] > best) { best = held[d]; in.p[0].dir = d; }
+    in.p[0].fire = fire_held;
+    in.p[0].shot = fire_pressed;
+    in.start = start_pressed;
+    in.pause = pause_pressed;
+    if (G.state == TK_TITLE) in.menu = menu_pressed;
+    fire_pressed = start_pressed = pause_pressed = 0;
+    menu_pressed = -1;
+
+    poll_pads();
+    G.pads = pad_count;
+    G.pad_primary = primary < 0 ? 0 : primary;
+
+    int second = -1;
+    for (int i = 0; i < MAX_PADS && second < 0; i++)
+        if (pads[i].connected && i != primary) second = i;
+
+    if (G.mode == TK_MODE_DUO && pad_count == 1) {
+        merge_pad(&in.p[1], &pads[primary]);
+    } else {
+        if (primary >= 0) merge_pad(&in.p[0], &pads[primary]);
+        if (second >= 0) merge_pad(&in.p[1], &pads[second]);
+    }
+
+    for (int i = 0; i < MAX_PADS; i++) {
+        const gamepad *p = &pads[i];
+        if (!p->connected) continue;
+        if (G.state == TK_TITLE) {
+            if (i != primary) continue;                       /* only the leading pad works the menu */
+            if (p->pressed & XB_UP) in.menu = TK_UP;
+            if (p->pressed & XB_DOWN) in.menu = TK_DOWN;
+            if (p->pressed & (XB_A | XB_START)) in.start = 1;
+        } else if (G.state == TK_OVER) {
+            if (p->pressed & (XB_A | XB_START)) in.start = 1;
+        } else if (p->pressed & XB_START) {
+            in.pause = 1;
+        }
+    }
+    return in;
 }
 
 /* ---------------------------------------------------------------- sound -- */
@@ -202,8 +355,11 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     case WM_KEYDOWN: {
         int repeat = (lp & (1 << 30)) != 0;
         int d = key_dir(wp);
-        if (d >= 0) { if (!held[d]) held[d] = ++press_order; }
-        else if (wp == VK_SPACE) fire_held = 1;
+        if (d >= 0) {
+            if (!held[d]) held[d] = ++press_order;
+            if (!repeat && (d == TK_UP || d == TK_DOWN)) menu_pressed = d;
+        }
+        else if (wp == VK_SPACE) { if (!fire_held) fire_pressed = 1; fire_held = 1; }
         else if (repeat) break;
         else if (wp == VK_RETURN) start_pressed = 1;
         else if (wp == 'P') pause_pressed = 1;
@@ -284,6 +440,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show)
     QueryPerformanceCounter(&last);
 
     make_sounds();
+    load_xinput();
     tk_init(&G, (uint32_t)last.QuadPart ^ (uint32_t)GetTickCount64());
     tk_render(&G, FB);
     ShowWindow(hwnd, show);
